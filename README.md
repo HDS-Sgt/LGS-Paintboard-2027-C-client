@@ -4,7 +4,8 @@
 
 - 公共流：连接 `wss://<host>/ws?public=1`，维护当前画面与两层历史（`L1`/`L2`），断线用 `since` 续传。
 - 工作流：连接 `wss://<host>/ws?public=0`，绑定槽位、发送 `BATCH`、解析 `TICK`。
-- 调度器：绘制 / 修复 / 声纳三组 token 由三个生产者补货，共享一个带锁的时间优先队列；声纳按槽位分块蛇形扫描，修复带跨轮游标。
+- 分层核心：`Board`（画面） / `PaintQueue`（全局队列） / `TokenPainter`（单 token 异步句柄） / `WorkConnection`（一条工作连接） / `IScheduler`（可替换调度策略） / `Engine`（组装与生命周期），全部在 `include/paintboard/` 与 `src/`。
+- 默认调度器 `ClassicScheduler` 保留原来的「绘制 / 修复 / 声纳三组生产者 + 时间优先队列」；另附 `RoundRobinScheduler` 仅用于测试，证明调度策略可替换。
 - 支持 PNG/JPG（`stb_image`）或 PPM 目标图、单像素 `--draw`、常驻刷图 `--paint-loop`。
 
 > 本项目只对接 2027 协议。协议权威来源是上游 [`Ikaleio/ikapb`](https://github.com/Ikaleio/ikapb) 的 `docs/protocol.md`；本仓库里的 `ikapb_protocol.md` 是逐字节偏移表，`ikapb_impl_guide.md` 是实现手册。
@@ -16,12 +17,13 @@
 仓库自带 `stb_image.h` 与 zstd 头文件，Linux 上直接链接系统的 `libzstd.so.1`：
 
 ```bash
-g++ -std=c++20 -O2 -Wall -Wextra -I.deps/zstd-dev/usr/include \
-    main.cpp -o main -lssl -lcrypto -pthread \
-    /lib/x86_64-linux-gnu/libzstd.so.1
+make            # 生成 ./main
+make test       # 只构建测试二进制，不自动运行
 ```
 
-如果系统装了 zstd 开发包，最后一项可以换成 `-lzstd`。编译时 `common_head.hpp` 里的 `rep` 宏会产生一些 `-Wsign-compare` 警告，属于已知噪音。
+产物名仍是 `./main`，命令行参数与旧版保持一致。旧单文件实现保留在 `legacy/main_legacy.cpp`，只作历史对照，不参与构建。
+
+如果系统装了 zstd 开发包，可把 `Makefile` 里的 `/lib/x86_64-linux-gnu/libzstd.so.1` 换成 `-lzstd`。
 
 ## 使用
 
@@ -76,29 +78,28 @@ IKAPB_TOKEN=<uuid> ./main --image target_40.png
 
 ## 离线回归
 
-`testfiles/` 里是探针、解码器和自检程序。编译方式：
+`make test` 会构建全部测试二进制；逐个运行：
 
 ```bash
-# 不带 zstd 的传输层冒烟
-g++ -std=c++20 -O2 -Wall -Wextra -I. testfiles/web_test.cpp \
-    -o testfiles/web_test -lssl -lcrypto -pthread
-
-# 带 zstd 的探针 / 工具
-g++ -std=c++20 -O2 -Wall -Wextra -I. -I.deps/zstd-dev/usr/include \
-    testfiles/pub_apply.cpp -o testfiles/pub_apply \
-    /lib/x86_64-linux-gnu/libzstd.so.1
-
-# 直接跑 main.cpp 解析路径的离线 harness
-g++ -std=c++20 -O2 -Wall -Wextra -I. -I.deps/zstd-dev/usr/include \
-    testfiles/replay_main.cpp -o testfiles/replay_main \
-    -lssl -lcrypto -pthread /lib/x86_64-linux-gnu/libzstd.so.1
-
-# BATCH 编码 / TICK 解析 / 声纳顺序 / 颜色字节序自检
-g++ -std=c++20 -O2 -Wall -Wextra -I. -I.deps/zstd-dev/usr/include \
-    testfiles/tick_selftest.cpp -o testfiles/tick_selftest \
-    -lssl -lcrypto -pthread /lib/x86_64-linux-gnu/libzstd.so.1
+make test
+./testfiles/protocol_test
 ./testfiles/tick_selftest
+./testfiles/board_test
+./testfiles/queue_test
+./testfiles/fake_transport_test
+./testfiles/classic_target_test
+./testfiles/cli_test
+
+# 公开画面基准：期望 since=24144972 且与 ref_t.ppm 逐字节一致
+./testfiles/replay_main .protocol/t_snap.zst .protocol/t_delta.zst /tmp/replay.ppm
+cmp /tmp/replay.ppm .protocol/ref_t.ppm
+
+# 快照 + 增量基准：期望与 public_board.ppm 一致
+./testfiles/pub_apply .protocol/snap_full.zst .protocol/catchup.zst /tmp/board.ppm
+cmp /tmp/board.ppm .protocol/public_board.ppm
 ```
+
+`pub_apply`、`pub_decode`、`web_test` 等独立探针的编译方式见 [`testfiles/README.md`](testfiles/README.md)。
 
 仓库**不附带** `.protocol/` 抓包样本（体积达数百 MB），离线回放需要自己用脚本采集：
 
@@ -114,10 +115,14 @@ g++ -std=c++20 -O2 -Wall -Wextra -I. -I.deps/zstd-dev/usr/include \
 ## 目录结构
 
 ```
-main.cpp             客户端主程序：公共流 + 工作流 + 调度器
+include/paintboard/  公共接口：types/config/board/paint_queue/painter/scheduler/engine
+src/                 实现：base/protocol/board/paint/net/scheduler/app
+legacy/main_legacy.cpp  旧单文件客户端，仅作历史参考，不参与构建
+main                 `make` 生成的客户端
+Makefile             构建 `main` 与全部测试
 websock.hpp          TLS / HTTP Upgrade / RFC6455 帧（POSIX + OpenSSL）
 zstdwrap.hpp         单 frame Zstandard 解压 / 压缩
-common_head.hpp      宏与基础类型
+common_head.hpp      旧宏与基础类型（仅 legacy / 少量工具）
 example.cpp          带完整注释的参考实现（教学用）
 tokens.example.json  token 配置模板
 ikapb_protocol.md    2027 协议逐字节偏移表

@@ -8,7 +8,15 @@
 - `snap_retry.sh`、`pull_pub.sh`：数据拉取脚本（**从仓库根运行**，内部调用 `testfiles/pub_apply` / `testfiles/pub_decode`）
 - `.protocol/`、`.deps/`：测试数据与无 root 解包的 zstd 头文件
 
-## 编译（在仓库根目录执行，`-I.` 指向上一层的头文件）
+## 编译（在仓库根目录执行）
+
+新分层核心的测试由根目录 `Makefile` 统一构建：
+
+```bash
+make test
+```
+
+只编译单个探针时：
 
 ```bash
 # 传输层冒烟
@@ -20,6 +28,8 @@ g++ -std=c++20 -O2 -Wall -Wextra -I. -I.deps/zstd-dev/usr/include \
     testfiles/pub_apply.cpp -o testfiles/pub_apply \
     /lib/x86_64-linux-gnu/libzstd.so.1
 ```
+
+`replay_main`、`tick_selftest`、`board_test`、`queue_test`、`fake_transport_test`、`classic_target_test`、`cli_test` 都走 `make test`，不要再用旧的单文件 `#include "../main.cpp"` 方式编译。
 
 ## 文件清单
 
@@ -34,7 +44,13 @@ g++ -std=c++20 -O2 -Wall -Wextra -I. -I.deps/zstd-dev/usr/include \
 | `zst_stream.cpp` | `ZSTD_decompressStream` 解半截文件 |
 | `zst_pub.cpp` | 流式解压后切 PUBLIC 记录 |
 | `encbatch_cmp.cpp` | BATCH 编码 vs 官方 Python `encode_batch` 逐字节对比 |
-| `tick_selftest.cpp` | 离线自检：`enc_batch`/`procTick`/声纳菱形顺序/颜色字节序/`ppm_load` |
+| `tick_selftest.cpp` | 协议层自检：BATCH 编码逐字节 / TICK 列 / 声纳菱形顺序 / 颜色字节序 |
+| `protocol_test.cpp` | BATCH/TICK/RULES 协议层单元测试 |
+| `board_test.cpp` | `Board` 的 RULES/SNAPSHOT/PUBLIC/声纳应用与 RGB 导出 |
+| `queue_test.cpp` | `PaintQueue` 计数语义（取出不减 / consume 才减 / requeue 不变） |
+| `fake_transport_test.cpp` | `TokenPainter + WorkConnection`：绑定、OK、COOLING、结果不足、断线重连 |
+| `classic_target_test.cpp` | `build_target` 与 `Plan` 的 known_idx/bbox/claim/done |
+| `cli_test.cpp` | 新 CLI 的参数解析 |
 | `tick_probe.cpp` / `tick_probe2.cpp` / `tick_probe3.cpp` | 发 BATCH 观察 TICK（3 为最终可用版） |
 | `pub_probe.cpp` | 连 `/ws?public=1` 等 SNAPSHOT/PUBLIC |
 | `pub_decode.cpp` | `usage: pub_decode <board.zst> [changes.csv] [W] [H]`，输出 `tick,idx,w` |

@@ -12,7 +12,7 @@
 - 本地三份专题文档的分工（不要重复造第四份）：
   - `ikapb_protocol.md` — 五种消息的逐字节偏移表（已与官方 Python/TS 示例对拍）+ 实测差异
   - `ikapb_impl_guide.md` — 客户端实现手册（总体结构、数据模型、调度、踩坑表、落地顺序；
-    **§12 是 `main.cpp` 当前的代码结构地图**，**§13 是调度策略接口草稿 + 三种策略**，
+    **§12 是 `legacy/main_legacy.cpp`（旧单文件）的结构地图**，**§13 是调度策略接口草稿 + 三种策略**，
     按函数名查分层/职责/数据流）
   - `websock_guide.md` — `websock.hpp`（TLS + RFC6455）用法与重连模板
 
@@ -32,7 +32,7 @@ wss://<host>/ws?public=1&since=<已持有的公共版本号>
 - 解压后的载荷：`[0]` 消息类型、`[1]` 协议版本（当前 `1`），其后是**列**（同类定宽字段的连续数组）。
 - 整数一律**小端**；`u8`/`u16` 列用 `pad4(n)=(n+3)&~3` 补齐，头部长度是 4 的倍数，所以每列都 4 字节对齐。
 - 载荷长度必须等于头部计数推导出的长度；保留字段与补齐字节必须为 0。
-- `max_message_bytes` / `max_payload_bytes` 是**服务器对客户端上行**的检查（压缩后 / 解压后都 ≤ 1 MiB）。`SNAPSHOT` 是下行，1000×600 codec 1 的载荷就是 `16 + 12·W·H = 7 200 016` 字节；本地解码上限不能按 1 MiB 设，`main.cpp` 用的是 16 MiB。
+- `max_message_bytes` / `max_payload_bytes` 是**服务器对客户端上行**的检查（压缩后 / 解压后都 ≤ 1 MiB）。`SNAPSHOT` 是下行，1000×600 codec 1 的载荷就是 `16 + 12·W·H = 7 200 016` 字节；本地解码上限不能按 1 MiB 设，`protocol::zstd_decode_one` 用的是 16 MiB。
 
 ### 上行：只有 `BATCH`（`0x01`）
 ```
@@ -77,48 +77,61 @@ wss://<host>/ws?public=1&since=<已持有的公共版本号>
 - **`SNAPSHOT`**：`/ws` 发 codec 1，长度 `16 + 12·W·H`（当前画面 + L1 + L2，层里 0 表示空）；`/admin/ws` 发 codec 0。
 - **`TICK` 声纳**：每个声纳是 `A = 2R²+2R+1` 个颜色，按菱形顺序（dy 从 −R 到 R，行内 dx 从 −(R−|dy|) 到 +(R−|dy|)），越界写 0；第 k 个声纳对应第 k 个 `OK` 的绘画结果。
 - **`RULES` 偏移 2 的 u16** 文档写“保留”，实测为 `0x0020`（样本有限，不要依赖）；不要把它当成字段读，更不要据此判断协议版本（版本在偏移 1）。
-- **解析入口约定**：消息统一是 `[0]=type`、`[1]=version`。写 `procXxx(readptr &P)` 时必须先说清传进来的 `P.ptr` 指向 type 还是 version，否则整条消息会错位；`main.cpp` 的做法是调用方读掉 type，函数内再读 version。
+- **解析入口约定**：消息统一是 `[0]=type`、`[1]=version`。写 `procXxx(readptr &P)` 时必须先说清传进来的 `P.ptr` 指向 type 还是 version，否则整条消息会错位；新协议层由调用方读掉 type，`parse_*` 内再读 version。
 - **偏移表**以 `ikapb_protocol.md` 为准；不要在代码里复制粘贴表格而不留注释。
 
 ## 3. 本仓库现状与文件地图
 
 ```
-main.cpp            客户端：默认跑 public=1 公共流（RULES/SNAPSHOT/PUBLIC，维护 cur/L1/L2，
-                    断线用 since 重连）；给 token 时另起 public=0 工作连接，实施线程从
-                    「带锁的全局时间优先队列」取操作，三组 token（绘制/修复/声纳）由三个
-                    生产者补货；支持 --draw/--ppm/--image/--tokens/--limit/--sonar-out/
-                    --paint-loop（绘制组循环整图重刷）
-websock.hpp         TLS + HTTP Upgrade + RFC6455 帧（tcSocket：connect/recvbin/try_recvbin/sendbin；
-                    支持 HTTPS_PROXY 的 HTTP CONNECT）
+include/paintboard/  公共接口（无 common_head.hpp 宏依赖）
+  types.hpp          SlotId/Tick/Token/Group/PaintOp/TickEvent/Rules...
+  config.hpp         Config/RuntimeStatus/Logger/ServerClock
+  board.hpp          Board：RULES/SNAPSHOT/PUBLIC/声纳 + RGB 导出
+  paint_queue.hpp    全局 PaintQueue（multiset 按 due,seq）
+  painter.hpp        IPainter / SlotView / TokenPainter 的逻辑接口
+  scheduler.hpp      Target/Plan/build_target/IScheduler/SchedulerDeps
+  engine.hpp         Engine：组装 Board/Queue/Painters/WorkConnection/Scheduler
+src/
+  base/              clock.cpp/log.cpp
+  protocol/wire.cpp  parse_rules/parse_tick/encode_batch/zstd 单帧
+  board/board.cpp
+  paint/             queue.cpp/token_painter.cpp
+  net/               transport.cpp/public_client.cpp/work_connection.cpp
+  scheduler/         classic_scheduler.cpp（ClassicScheduler 保持原策略）
+  app/               cli.cpp/engine.cpp/main.cpp（新入口）
+legacy/main_legacy.cpp 旧单文件实现，仅作历史参考，不参与构建
+websock.hpp         TLS + HTTP Upgrade + RFC6455 帧（tcSocket：
+                    connect/recvbin/try_recvbin/sendbin；HTTPS_PROXY CONNECT）
 zstdwrap.hpp        zstddec/zstdenc，强制“恰好一个 frame”
-common_head.hpp     用户宏板子（$d/u$d/_Str/rep/...；注意 #define ret return）
-tokens.example.json token 配置模板；复制为 tokens.json 后填真实 token（tokens.json 已被 .gitignore 忽略，不入库）
-.deps/stb/          stb_image.h（单头文件，main.cpp 相对路径包含，无需额外 -I）
+common_head.hpp     旧宏板子（$d/u$d/_Str/rep/...；仅 legacy 与少量工具用）
+tokens.example.json token 配置模板；复制为 tokens.json 后填真实 token（已忽略）
+.deps/stb/          stb_image.h（classic_scheduler.cpp 相对路径包含，无需 -I）
+.deps/zstd-dev/     zstd.h（无 root 解包）
 ikapb_protocol.md   2027 逐字节偏移表
-ikapb_impl_guide.md 2027 客户端实现手册
+ikapb_impl_guide.md 2027 客户端实现手册（§12 旧单文件结构，§13 调度策略）
 websock_guide.md    websock.hpp 操作指南
-repo/ikapb/         上游仓库（2027 分支检出；2026 后端只在 origin/2026；本地克隆，不入库）
-.protocol/          实机抓包样本：*.hdr + *.zst、*.ppm、changes.csv、meta.json 等，可离线解码（本地数据，不入库）
-testfiles/          探针与对拍程序；各工具的详细说明见 testfiles/README.md
-  replay_main.cpp   离线回放 harness：include ../main.cpp，喂合成 RULES + 快照/增量，走真实解析路径出 PPM
-  tick_selftest.cpp 离线自检：enc_batch 逐字节、procTick 列偏移、声纳菱形顺序、颜色字节序
-  pub_decode        增量链 → tick,idx,w CSV
-  pub_apply         快照 + 增量 → PPM（可离线复现公共画面）
-  web_test          线上冒烟：连接 → Ping → 收一条 Binary
+repo/ikapb/         上游仓库（2027 分支检出；本地克隆，不入库）
+.protocol/          实机抓包样本（本地数据，不入库）
+testfiles/          探针与对拍程序；详见 testfiles/README.md
+  replay_main.cpp   离线回放：Board + 协议层，快照/增量 → PPM
+  tick_selftest.cpp BATCH/TICK/声纳/颜色自检
+  board_test/queue_test/fake_transport_test/classic_target_test/cli_test
+  pub_decode/pub_apply/web_test 等探针
 pull_pub.sh         走 7890 代理拉公共画面（HTTP），失败回退直连
 snap_retry.sh       快照重试（HTTP，成功后出 PPM/PNG）
 ```
 
-### `main.cpp` 的几个现状/坑（扩展前先看）
+### 分层核心的现状/坑（扩展前先看）
 
-- **字段名是历史遗留**：`procRule` 从 version 读起，`glob.edit` 实际是协议版本（偏移 1），`glob.remain` 实际是偏移 2 的保留 u16（实测 32）；`W/H` 及其后的偏移是对的。别按字段名去套协议表。
-- **RULES 可重发**：`procRule` 每次都更新 `glob`；`W/H` 变化时重建 `cols/L1/L2/sonar`（旧画面会丢，公共流靠 `since` 不匹配回退到 `SNAPSHOT`）。
-- **PUBLIC 断链即重连**：`from != since` 时返回 -1，外层用旧 `since` 重连；成功应用时每段推进一次 `since`（`since = from + tick[i]`）。
-- **两条连接分工**：公共线程 `public=1` 只画画面；`--token` 时工作线程 `public=0` 绑定槽位、发 BATCH、解析 TICK。`main` 默认（无 token）仍是纯公共流。
-- **工作连接必须用 `try_recvbin`**：`recvbin()` 收到 Ping 后会继续等“下一条 Binary”，会在冷却期间卡住、无法按时发下一笔。`try_recvbin` 只切完整帧，没凑齐就返回 0。
-- **TICK 没有请求 ID**：`result[k]` 对应本连接被处理的第 k 条记录。结果不足时保留待处理队列到下一个 TICK，不要清空（新发的记录可能落在下一个 tick）。
+- **旧字段名只在 `legacy/main_legacy.cpp`**：`procRule` 的 `glob.edit`/`glob.remain` 是历史遗留；新代码一律走 `protocol::parse_rules`，字段名按协议。
+- **RULES 可重发**：`Board::apply_rules` 每次都更新；`W/H` 变化时重建 `cols/L1/L2/sonar`（旧画面会丢，公共流靠 `since` 不匹配回退到 `SNAPSHOT`）。
+- **PUBLIC 断链即重连**：`Board::apply_public` 要求 `from == since`，不匹配返回 false，`PublicClient` 用旧 `since` 重连；成功应用时**每段**推进 `since = from + tick[i]`。
+- **两条连接分工**：`PublicClient` 跑 `public=1` 只画画面；`WorkConnection` 跑 `public=0` 绑定槽位、发 BATCH、解析 TICK。无 token 时 `Engine` 只跑公共流。
+- **工作连接必须用 `try_recvbin`**：`recvbin()` 收到 Ping 后会继续等“下一条 Binary”，会在冷却期间卡住、无法按时发下一笔。`TcpTransport::recv` 只用 `try_recvbin` 切完整帧。
+- **TICK 没有请求 ID**：`WorkConnection::pend_` 按发送顺序记录 bind/paint；`result[k]` 对应第 k 条记录，结果不足时保留 pend 到下一个 TICK，不要清空。
+- **时间域必须统一**：TICK 的 `brush.t`、cooling 值是**服务器微秒**，调度器 `step(now)` 必须传 `WorkConnection::now()`（`ServerClock`），不能传 `mono_us()`（开机单调时钟）。初版混用导致 `ready_for` 永假、单像素不落笔。
 - **颜色文本**：`--draw x,y,RRGGBB` 是给人看的 RGB 顺序，内部要转成 `R | G<<8 | B<<16 | 0xFF000000`（R 在最低字节），不能直接把 `0xRRGGBB` 当 u32。
-- **声纳才是实时视野**：`TICK` 里第 k 个声纳对应第 k 个 `OK` 的**绘画**；绑定成功没有声纳。`--sonar-out` 导出 `sonar_col/sonar_tick` 便于核对。
+- **声纳才是实时视野**：`TICK` 里第 k 个声纳对应第 k 个 `OK` 的**绘画**；绑定成功没有声纳。`--sonar-out` 导出 `sonar_col/tick` 便于核对。
 - **不要用公共画面验证刚画的像素**：`GET /api/board`、`/ws?public=1`、`x-board-version` 都属于**公共延迟画面**，只包含提交时间 ≤ `now − D` 的 tick（`D = public_delay_ms`；文档默认 10 分钟，实机 2026-11-20 `/api/meta` 为 **60000**）。刚画完去拉快照一定看不到，会误判成“没画上”。实时证据只有两处：本连接 `OK` 结果里的声纳、以及 `brush.t` 是否推进。
 - **声纳是逐 tick 的实时读数，会被别人覆盖**：每笔 `OK` 的声纳读的是该 tick 提交后的画面。一次画很多笔时，早先的格子可能在后续 tick 被别人写掉，`--sonar-out` 里看到的不一定还是你画的样子——这不是编码问题。
 
@@ -160,36 +173,33 @@ snap_retry.sh       快照重试（HTTP，成功后出 PPM/PNG）
 
 ### 编译 `main`
 ```bash
-g++ -std=c++20 -O2 -Wall -Wextra -I.deps/zstd-dev/usr/include \
-    main.cpp -o main -lssl -lcrypto -pthread \
-    /lib/x86_64-linux-gnu/libzstd.so.1
+make            # 生成 ./main（src/app/main.cpp + 全部 src/）
+make test       # 构建全部测试二进制（不自动运行）
 ```
-- `zstd.h` 来自无 root 解包的 `.deps/zstd-dev/usr/include`；运行时链接系统 `libzstd.so.1`（dev 包装出来的 `.so` 软链可能不存在，别改成 `-lzstd` 后不检查）。
-- `stb_image.h` 已放在 `.deps/stb/`，`main.cpp` 用 `#include ".deps/stb/stb_image.h"` 相对包含，**不需要额外 `-I`**；换新版本直接覆盖该文件即可。
-- 编译会出现若干 `common_head.hpp` 里 `rep` 宏的 `-Wsign-compare` 警告，这是已知噪音；`rc=0` 即可，不要为消警告去改宏。
+- `zstd.h` 来自无 root 解包的 `.deps/zstd-dev/usr/include`（Makefile 已带 `-I`）；运行时链接系统 `libzstd.so.1`（dev 包装出来的 `.so` 软链可能不存在，别改成 `-lzstd` 后不检查）。
+- `stb_image.h` 已放在 `.deps/stb/`，由 `src/scheduler/classic_scheduler.cpp` 相对包含，**不需要额外 `-I`**。
+- 旧单文件实现已移到 `legacy/main_legacy.cpp`，不参与构建；需要对照历史行为时直接读它，不要把新代码改回去。
 
-### 离线回归（不联网，改 `main.cpp` 后必跑）
+### 离线回归（不联网，改 `src/` 后必跑）
 ```bash
-# 1) 解码增量链：期望最后一行 records=3 entries=203322 consumed=1152828/1152828
-./testfiles/pub_decode .protocol/delta_proxy.zst /tmp/changes.csv 1000 600
+make test
+./testfiles/protocol_test
+./testfiles/tick_selftest
+./testfiles/board_test
+./testfiles/queue_test
+./testfiles/fake_transport_test
+./testfiles/classic_target_test
+./testfiles/cli_test
 
-# 2) 快照 + 增量回放：期望与基准 PPM 完全一致
+# 公开画面基准：期望 since=24144972 且 PPM 逐字节一致
+./testfiles/replay_main .protocol/t_snap.zst .protocol/t_delta.zst /tmp/replay.ppm
+cmp /tmp/replay.ppm .protocol/ref_t.ppm && echo "replay MATCH"
+
+# 快照 + 增量基准：期望与 public_board.ppm 一致
 ./testfiles/pub_apply .protocol/snap_full.zst .protocol/catchup.zst /tmp/board.ppm
 cmp /tmp/board.ppm .protocol/public_board.ppm && echo "pub_apply MATCH"
-
-# 3) 直接跑 main.cpp 的解析路径（离线 harness）：期望 since=24144972 且 PPM 一致
-g++ -std=c++20 -O2 -Wall -Wextra -I. -I.deps/zstd-dev/usr/include \
-    testfiles/replay_main.cpp -o testfiles/replay_main \
-    -lssl -lcrypto -pthread /lib/x86_64-linux-gnu/libzstd.so.1
-./testfiles/replay_main .protocol/t_snap.zst .protocol/t_delta.zst /tmp/replay.ppm
-cmp /tmp/replay.ppm .protocol/ref_t.ppm && echo "replay_main MATCH"
-
-# 4) 新代码自检：BATCH 编码 / TICK 解析 / 声纳顺序 / 颜色字节序
-g++ -std=c++20 -O2 -Wall -Wextra -I. -I.deps/zstd-dev/usr/include \
-    testfiles/tick_selftest.cpp -o testfiles/tick_selftest \
-    -lssl -lcrypto -pthread /lib/x86_64-linux-gnu/libzstd.so.1
-./testfiles/tick_selftest
 ```
+- `pub_apply` / `pub_decode` 是独立探针，编译方式见 `testfiles/README.md`。
 - `pub_apply` 的第二个参数可以是 `-`；304 的空 body 不能丢给 `zstddec`。
 - 多 frame 样本的反例：`./testfiles/pub_decode .protocol/board.zst /tmp/x.csv 1000 600` 会以 `decompress: zstd: trailing bytes after frame` 失败，这是预期行为。
 
@@ -216,7 +226,7 @@ HTTPS_PROXY=http://127.0.0.1:7890 ./main --dry-run        # 绑定 + 打印画�
 
 1. **单一权威**：协议字节表只改 `ikapb_protocol.md`；实现建议只改 `ikapb_impl_guide.md`；本文件只放入口与不变量。
 2. **区分“文档写的”与“实测的”**：实测差异必须带样本/命令（如 `.protocol/*.hdr`），不要静默改文档数值。
-3. 用户会手改 `main.cpp`/`websock.hpp`：**编辑前必须重新读文件**（mtime 会变），不要用旧快照；`old_string` 必须来自最新内容。
+3. 用户会手改 `src/`/`include/paintboard/`/`websock.hpp`：**编辑前必须重新读文件**（mtime 会变），不要用旧快照；`old_string` 必须来自最新内容。
 4. 验证优先用离线样本 `.protocol/*.zst` 和 `testfiles/`，不要为每次改动重连线上；线上冒烟用 `testfiles/web_test`。
 5. 测试期用户明确要求把 token 明文放在 `./tokens.json`（该文件已被 `.gitignore` 忽略，不会入库）；除此之外不要把 token 写进其他提交文件或脚本。正式/公开环境应删除 `tokens.json`，改用 `--token` / `IKAPB_TOKEN`。
 6. 声称完成前必须重新编译并跑最小验证（至少 §4 的 `replay_main` + `cmp`，见 `verification-before-completion` 纪律）。
@@ -245,6 +255,6 @@ sed -n '203,545p' repo/ikapb/docs/protocol.md
 ## 7. 接手/续写清单（隔几天回来先做这四步）
 
 1. `git -C repo/ikapb log --oneline -3` + `git -C repo/ikapb status --short`：确认还在 2027 分支、有没有别人改过上游。
-2. 重读 `main.cpp`（mtime 可能已变）和本文件 §3 的“现状/坑”。
+2. 重读 `include/paintboard/` 与 `src/`（mtime 可能已变）和本文件 §3 的分层核心说明。
 3. 跑 §4 的离线回归三条，确认基线仍绿。
 4. 看 `.protocol/*.log`（`main_run.log` / `replay.log` / `ref_t.log` / `snap_job.log`）确认上次停在哪一步，再决定动哪里。

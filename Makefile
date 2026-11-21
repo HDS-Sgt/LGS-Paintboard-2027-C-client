@@ -59,8 +59,8 @@ testfiles/classic_target_test: testfiles/classic_target_test.cpp $(CLASSIC_SRCS)
 testfiles/cli_test: testfiles/cli_test.cpp src/app/cli.cpp
 	$(CXX) $(CXXFLAGS) $^ -o $@ $(LDLIBS)
 
-paintboard_new: $(APP_SRCS)
+main: $(APP_SRCS)
 	$(CXX) $(CXXFLAGS) $^ -o $@ $(LDLIBS)
 
 clean:
-	rm -f paintboard_new testfiles/protocol_test testfiles/tick_selftest testfiles/board_test testfiles/replay_main testfiles/queue_test testfiles/fake_transport_test testfiles/classic_target_test testfiles/cli_test
+	rm -f main paintboard_new testfiles/protocol_test testfiles/tick_selftest testfiles/board_test testfiles/replay_main testfiles/queue_test testfiles/fake_transport_test testfiles/classic_target_test testfiles/cli_test
