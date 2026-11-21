@@ -702,6 +702,7 @@ static src_image g_src;
 static target_image g_target;
 static u$d g_bb_x0 = 0, g_bb_y0 = 0, g_bb_x1 = 0, g_bb_y1 = 0;   // 目标包围盒
 static vector<u$d> g_sp_pts;   // 声纳网格点（idx），build_target 时算好，供常驻 repair 判断
+static vector<u$d> g_known_idx; // 目标像素的紧凑下标表，repair 巡检只遍历它，不扫整张画布
 static u$d g_repair_follow = 2;   // repair 组常驻声纳网格点的槽位数（0=关闭）
 
 // stb_image 适配：png/jpg/... → src_image（RGBA，颜色统一转成 R|G<<8|B<<16|A<<24，
@@ -1029,11 +1030,13 @@ static void build_target() {
    plan_alloc(N);
 
    size_t nk = 0;
+   g_known_idx.clear();
    g_bb_x0 = W; g_bb_y0 = H; g_bb_x1 = 0; g_bb_y1 = 0;
    for(u$d y = 0; y < H; y ++)
       for(u$d x = 0; x < W; x ++)
          if(g_target.known[(size_t)y * W + x]) {
             nk ++;
+            g_known_idx.pb((u$d)((size_t)y * W + x));
             if(x < g_bb_x0) g_bb_x0 = x;
             if(y < g_bb_y0) g_bb_y0 = y;
             if(x > g_bb_x1) g_bb_x1 = x;
@@ -1649,19 +1652,21 @@ fn repair_worker() {
             // 本轮还没画完时禁止“复检”：否则 repair 会把已经画对的像素反复认领，
             // 占满共享队列、挤掉 paint，整图进度反而停住。复检只在画完后做。
             // 复检限流：pending repair op 不超 16 个；plan_done 保证不抢未画像素。
-            // 扫描游标：repair 每轮最多认领 16 个，若每轮都从 p=0 起，前几千个
-            // 像素会把名额吃光、后面的像素永远轮不到（日志里 repair 的 OK 只出现在
-            // idx≈985..10950）。跨轮保留 rcur，像 sonar 一样轮转整张画布。
+            // 扫描游标：repair 只遍历 g_known_idx（目标像素的紧凑列表），
+            // 不再按画布下标 0..N 扫——目标只占画布一小块时，按画布扫
+            // 95% 的窗口都在空白区，一圈要十几分钟，repair 看起来像不动。
+            // 6150 个目标像素按 256/500ms 扫一遍约 12s。
             static size_t rcur = 0;
             size_t scanned = 0;
+            size_t KN = g_known_idx.size();
             // 先扫完一个窗口、再按优先级入队：坏色（prio=0）优先于复检（prio=1）。
             // 若边扫边入队，16 个名额会被窗口前半段的“复检”占满，后面真正被
             // 改坏的像素反而排不进去，所以分两趟：先收集，再让坏色先 claim。
             vector<u$d> dmg, chk;
             size_t win = g_round_cap ? g_round_cap : 256;
-            if(win > N) win = N;
+            if(win > KN) win = KN;
             for(size_t n = 0; n < win; n ++) {
-               size_t p = (rcur + n) % N;
+               size_t p = g_known_idx[(rcur + n) % KN];
                scanned = n + 1;
                if(!g_target.known[p]) continue;
                u$d idx = (u$d)p;
@@ -1680,14 +1685,17 @@ fn repair_worker() {
             }
             {
                static bool rdbg = getenv("IKAPB_RDBG") != nullptr;
-               if(rdbg) logp("[rdbg] dmg={} chk={} qc={} done={}\n",
+               if(rdbg) logp("[rdbg] kn={} rcur={} win={} dmg={} chk={} qc={} done={}\n",
+                             (u$d)KN, (u$d)rcur, (u$d)win,
                              (u$d)dmg.size(), (u$d)chk.size(), (u$d)g_qc[G_REPAIR].load(),
                              (u$d)g_done_total.load());
             }
+            u$d rcap = g_gslots[G_REPAIR].load();
+            if(rcap < 16) rcap = 16;
             for(int pass = 0; pass < 2 && made < g_round_cap; pass ++) {
                const vector<u$d> &src = (pass == 0) ? dmg : chk;
                for(size_t k = 0; k < src.size() && made < g_round_cap; k ++) {
-                  if(g_qc[G_REPAIR].load() >= 16) break;   // pending 限流
+                  if(g_qc[G_REPAIR].load() >= rcap) break;   // pending 限流：按 repair 槽位数放宽
                   u$d idx = src[k];
                   if(!plan_claim(idx)) continue;
                   op_t o; o.kind = OP_PAINT; o.grp = G_REPAIR; o.idx = idx;
@@ -1696,7 +1704,7 @@ fn repair_worker() {
                   made ++;
                }
             }
-            if(scanned) rcur = (rcur + scanned) % N;
+            if(scanned) rcur = (rcur + scanned) % KN;
          }
       }
       static u$d rlog = 0;
