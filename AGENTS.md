@@ -134,6 +134,8 @@ snap_retry.sh       快照重试（HTTP，成功后出 PPM/PNG）
 - **声纳才是实时视野**：`TICK` 里第 k 个声纳对应第 k 个 `OK` 的**绘画**；绑定成功没有声纳。`--sonar-out` 导出 `sonar_col/tick` 便于核对。
 - **不要用公共画面验证刚画的像素**：`GET /api/board`、`/ws?public=1`、`x-board-version` 都属于**公共延迟画面**，只包含提交时间 ≤ `now − D` 的 tick（`D = public_delay_ms`；文档默认 10 分钟，实机 2026-11-20 `/api/meta` 为 **60000**）。刚画完去拉快照一定看不到，会误判成“没画上”。实时证据只有两处：本连接 `OK` 结果里的声纳、以及 `brush.t` 是否推进。
 - **声纳是逐 tick 的实时读数，会被别人覆盖**：每笔 `OK` 的声纳读的是该 tick 提交后的画面。一次画很多笔时，早先的格子可能在后续 tick 被别人写掉，`--sonar-out` 里看到的不一定还是你画的样子——这不是编码问题。
+- **发送失败不能丢 op**：`WorkConnection::flush` 先用 `outbox_snapshot()` 组 BATCH，`transport_->send` 成功后才 `take_outbox()` 清空。发送抛异常时 op 留在 painter，重连后重发；否则 `ClassicScheduler::step` 已 `queue.consume(op)`，op 却不在队列/outbox/pend 任何一处，`Plan` 认领会永久泄漏（历史 `target_done = need − 4` 的同类症状）。`fake_transport_test` 有对应场景。
+- **冷却/断线重排用 `restore_consumed`**：发送时已经 `consume`，不能再用“只插回、不动计数”的 `requeue`；断线后还要 `queue.recount()` 按真实 multiset 校正。`done()` 只在纯 paint 组、非 `--daemon`/`--paint-loop` 时按 `target_complete` 收尾；带 repair/sonar 的会话继续值守，Engine 另要求 `pending_paint_count()==0`。
 
 ### 调度器不变量（2026-11-20 踩坑后确认）
 
