@@ -36,6 +36,7 @@ class WorkConnection {
 
   // 断线时把已发出但没等到结果的绘画交回调度器；bind 不计入。
   std::vector<PaintOp> take_pending();
+  std::size_t pending_paint_count() const;
 
  private:
   struct Pend {

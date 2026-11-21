@@ -7,6 +7,7 @@
 #include <deque>
 #include <iostream>
 #include <memory>
+#include <stdexcept>
 #include <string>
 #include <utility>
 #include <vector>
@@ -114,6 +115,10 @@ class FakeTransport final : public ITransport {
     last_url = url;
   }
   void send(std::span<const std::uint8_t> payload) override {
+    if (fail_next_send) {
+      fail_next_send = false;
+      throw std::runtime_error("fake send failure");
+    }
     sent.emplace_back(payload.begin(), payload.end());
   }
   std::optional<std::vector<std::uint8_t>> recv(
@@ -128,6 +133,7 @@ class FakeTransport final : public ITransport {
 
   int connects = 0;
   std::string last_url;
+  bool fail_next_send = false;
   std::deque<std::vector<std::uint8_t>> inbox;
   std::vector<std::vector<std::uint8_t>> sent;
 };
@@ -287,6 +293,37 @@ void test_disconnect_pending_and_rebind() {
   check(h->conn->all_bound(), "all bound after reconnect");
 }
 
+void test_send_failure_keeps_outbox() {
+  auto h = make_harness(1);
+  h->conn->request_all_binds();
+  h->conn->flush();
+  h->fake->inbox.push_back(make_tick(1, {}, {0}, {0}));
+  check(h->conn->poll(std::chrono::milliseconds(10)).has_value(),
+        "bind tick consumed");
+
+  PaintOp op;
+  op.id = 9;
+  op.idx = 42;
+  op.color = 0xFF0000FFu;
+  check(h->painters[0]->submit(op, mono_us()), "submit before failed send");
+  h->fake->fail_next_send = true;
+
+  bool threw = false;
+  try {
+    h->conn->flush();
+  } catch (const std::exception&) {
+    threw = true;
+  }
+  check(threw, "send failure propagates");
+  check(h->fake->sent.size() == 1, "failed batch not recorded as sent");
+  check(h->painters[0]->outbox_snapshot().size() == 1,
+        "failed send keeps op in outbox");
+
+  h->conn->flush();
+  check(h->fake->sent.size() == 2, "retry sends the kept op");
+  check(h->painters[0]->outbox_snapshot().empty(), "outbox cleared on success");
+}
+
 } // namespace
 
 int main() {
@@ -295,9 +332,10 @@ int main() {
   test_cooling_keeps_same_op();
   test_insufficient_results_keep_pending();
   test_disconnect_pending_and_rebind();
+  test_send_failure_keeps_outbox();
 
   if (failures == 0) {
-    std::cout << "fake_transport_test OK (5 scenarios)\n";
+    std::cout << "fake_transport_test OK (6 scenarios)\n";
     return 0;
   }
   std::cerr << failures << " failure(s)\n";

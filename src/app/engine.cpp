@@ -115,6 +115,13 @@ int Engine::run_work() {
                   rules.width, rules.height, rules.radius, rules.tps,
                   rules.max_slots);
 
+        if (painter_ptrs_.size() > rules.max_slots) {
+          log_.logf("[work] {} tokens > max_slots {}\n", painter_ptrs_.size(),
+                    rules.max_slots);
+          status_.abort.store(true);
+          return 2;
+        }
+
         if (!config_.dry_run && config_.image_path.empty() &&
             config_.draws.empty() && !config_.daemon) {
           log_.logf("[main] 没有目标图（--image/--draw），仅绑定后退出\n");
@@ -156,7 +163,7 @@ int Engine::run_work() {
           work_->flush();
           if (config_.limit && status_.painted.load() >= config_.limit)
             return 0;
-          if (scheduler_->done()) {
+          if (scheduler_->done() && work_->pending_paint_count() == 0) {
             log_.logf("[work] scheduler done painted={} limit={}\n",
                       status_.painted.load(), config_.limit);
             return 0;

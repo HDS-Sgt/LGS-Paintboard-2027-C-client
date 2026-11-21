@@ -68,6 +68,7 @@ class FakePainter final : public IPainter {
   }
   void on_brush(std::uint32_t, Tick) override {}
   void on_lost() override { bound_ = false; }
+  std::vector<PaintOp> outbox_snapshot() const override { return {}; }
   std::vector<PaintOp> take_outbox() override { return {}; }
 
   void set_bound(bool bound) { bound_ = bound; }

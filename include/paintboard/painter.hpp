@@ -49,6 +49,8 @@ class IPainter {
                                std::uint64_t value, Tick now) = 0;
   virtual void on_brush(std::uint32_t idx, Tick t) = 0;
   virtual void on_lost() = 0;
+  // flush 先取快照发送，成功后再清空；发送失败时 outbox 保持原样，避免丢 op。
+  virtual std::vector<PaintOp> outbox_snapshot() const = 0;
   virtual std::vector<PaintOp> take_outbox() = 0;
 };
 
@@ -77,6 +79,7 @@ class TokenPainter final : public IPainter {
   void on_brush(std::uint32_t idx, Tick t);
   void on_lost();
 
+  std::vector<PaintOp> outbox_snapshot() const;
   std::vector<PaintOp> take_outbox();
 
  private:

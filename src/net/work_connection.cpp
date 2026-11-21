@@ -66,11 +66,12 @@ void WorkConnection::flush() {
     if (view.want_bind && bind_pending_.count(painter->id()) == 0)
       binds.push_back(Bind{painter->id(), painter->token()});
 
-    for (PaintOp& op : painter->take_outbox()) {
+    for (const PaintOp& op : painter->outbox_snapshot()) {
       // 队列里的 op 属于哪一组由生产者决定；这里只负责按画笔槽位发送。
-      if (op.group != painter->group())
-        op.group = painter->group();
-      paints.emplace_back(painter, std::move(op));
+      PaintOp queued = op;
+      if (queued.group != painter->group())
+        queued.group = painter->group();
+      paints.emplace_back(painter, std::move(queued));
     }
   }
 
@@ -86,6 +87,12 @@ void WorkConnection::flush() {
   const std::vector<std::uint8_t> payload =
       protocol::encode_batch(binds, wire_paints);
   transport_->send(payload);
+
+  // 只有 send 成功后才清空 outbox；send 抛异常时 op 留在原处，重连后重发，
+  // 不会出现“队列已 consume、outbox 已清空、pend 又没记录”的认领泄漏。
+  for (IPainter* painter : painters_)
+    if (painter)
+      painter->take_outbox();
 
   for (const Bind& bind : binds) {
     bind_pending_.insert(bind.slot);
@@ -201,6 +208,14 @@ std::vector<PaintOp> WorkConnection::take_pending() {
     it = pend_.erase(it);
   }
   return out;
+}
+
+std::size_t WorkConnection::pending_paint_count() const {
+  std::size_t count = 0;
+  for (const Pend& rec : pend_)
+    if (!rec.bind)
+      ++count;
+  return count;
 }
 
 void WorkConnection::close() {

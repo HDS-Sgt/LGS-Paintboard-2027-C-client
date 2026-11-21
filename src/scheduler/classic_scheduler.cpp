@@ -481,10 +481,16 @@ void ClassicScheduler::on_disconnect(std::vector<PaintOp> pending) {
     // pending 里的操作在发送时已经 consume，重排必须把计数加回来。
     deps_.queue.restore_consumed(op);
   }
+  // 发送异常/重连边界上以真实队列为准修正计数。
+  deps_.queue.recount();
 }
 
 bool ClassicScheduler::done() const {
-  if (deps_.config.paint_loop_ms > 0)
+  // 与旧 should_stop 对齐：常驻/paint-loop 不自己退出；带 repair/sonar 组的
+  // 会话在目标画完后继续值守，只有纯 paint 组才允许按 target_complete 收尾。
+  if (deps_.config.daemon || deps_.config.paint_loop_ms > 0)
+    return false;
+  if (painter_count(Group::Repair) > 0 || painter_count(Group::Sonar) > 0)
     return false;
   return target_complete(target_, plan_);
 }

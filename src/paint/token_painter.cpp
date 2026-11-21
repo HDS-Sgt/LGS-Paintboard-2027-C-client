@@ -155,6 +155,11 @@ void TokenPainter::on_lost() {
   not_before_ = 0;
 }
 
+std::vector<PaintOp> TokenPainter::outbox_snapshot() const {
+  std::lock_guard<std::mutex> lock(mu_);
+  return outbox_;
+}
+
 std::vector<PaintOp> TokenPainter::take_outbox() {
   std::lock_guard<std::mutex> lock(mu_);
   std::vector<PaintOp> out;

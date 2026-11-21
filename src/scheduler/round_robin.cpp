@@ -61,6 +61,7 @@ void RoundRobinScheduler::on_disconnect(std::vector<PaintOp> pending) {
     // pending 里的操作在发送时已经 consume，重排必须把计数加回来。
     queue_.restore_consumed(op);
   }
+  queue_.recount();
 }
 
 bool RoundRobinScheduler::done() const { return false; }
