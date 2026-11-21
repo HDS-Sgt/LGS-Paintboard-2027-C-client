@@ -1,6 +1,6 @@
 # Paintboard Layered Core Implementation Plan
 
-> **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
+> **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [x]`) syntax for tracking.
 
 **Goal:** 把单文件 `main.cpp` 拆成可独立测试的单进程分层库：独立的 Public 画面、全局 `PaintQueue`、单 token `TokenPainter`、可替换的 `IScheduler`，同时保持现有 CLI 和线上行为。
 
@@ -109,7 +109,7 @@ std::vector<std::uint8_t> zstd_encode(std::span<const std::uint8_t> payload);
 ```
 - `Token` 是 16 字节，`Bind`/`Paint` 与现有 `enc_batch` 字段一致。
 
-- [ ] **Step 1: 写失败的协议测试**
+- [x] **Step 1: 写失败的协议测试**
 
 Create `testfiles/protocol_test.cpp`，至少包含：
 
@@ -139,24 +139,24 @@ int main() {
 
 再把 `testfiles/tick_selftest.cpp` 的 include 从 `../main.cpp` 改为新头文件，保留其 BATCH 逐字节、TICK 列偏移、声纳顺序、颜色字节序断言。
 
-- [ ] **Step 2: 运行测试，确认失败**
+- [x] **Step 2: 运行测试，确认失败**
 
 Run: `make test-protocol`
 Expected: 编译失败，`paintboard/types.hpp` 或 `protocol::encode_batch` 不存在。
 
-- [ ] **Step 3: 建骨架并搬协议代码**
+- [x] **Step 3: 建骨架并搬协议代码**
 
 - `Makefile` 变量：`CXX ?= g++`、`CXXFLAGS ?= -std=c++20 -O2 -Wall -Wextra -I. -Iinclude -I.deps/zstd-dev/usr/include`、`LDLIBS = -lssl -lcrypto -pthread /lib/x86_64-linux-gnu/libzstd.so.1`。
 - `make test-protocol` 编译 `testfiles/protocol_test.cpp testfiles/tick_selftest.cpp src/protocol/wire.cpp src/base/log.cpp src/base/clock.cpp`。
 - `wire.cpp` 内保留现有 `readptr`/`proc*` 逻辑，外层加 `namespace paintboard::protocol`；所有 `parse_*` 的输入都从**完整载荷的 type 字节（偏移 0）**开始，函数内部再读 version（偏移 1）；`parse_rules` 返回 `Rules`，`parse_tick` 填 `TickEvent`，`encode_batch` 输出 `std::vector<uint8_t>`。
 - `types.hpp` 只放类型；`config.hpp` 放 `Config`/`RuntimeStatus`/`Logger` 的完整声明（字段见 spec §6.8），后续任务只实现行为，不再改字段。
 
-- [ ] **Step 4: 运行测试，确认通过**
+- [x] **Step 4: 运行测试，确认通过**
 
 Run: `make test-protocol && ./testfiles/protocol_test && ./testfiles/tick_selftest`
 Expected: `protocol_test` 无输出且退出 0；`tick_selftest` 全部 PASS。
 
-- [ ] **Step 5: 提交**
+- [x] **Step 5: 提交**
 
 ```bash
 git add Makefile include src testfiles/protocol_test.cpp testfiles/tick_selftest.cpp docs/superpowers/specs/2026-11-21-paintboard-layered-core-design.md docs/superpowers/plans/2026-11-21-paintboard-layered-core.md
@@ -232,7 +232,7 @@ public:
 }
 ```
 
-- [ ] **Step 1: 写 Board 尺寸变化测试**
+- [x] **Step 1: 写 Board 尺寸变化测试**
 
 Create `testfiles/board_test.cpp`：
 
@@ -265,12 +265,12 @@ int main() {
 }
 ```
 
-- [ ] **Step 2: 运行测试，确认失败**
+- [x] **Step 2: 运行测试，确认失败**
 
 Run: `make test-board`
 Expected: 编译失败，`Board` 未定义。
 
-- [ ] **Step 3: 实现 Board/PublicClient**
+- [x] **Step 3: 实现 Board/PublicClient**
 
 - 把 `cols/L1/L2/sonar_col/sonar_tick/glob/since/canvas_mu` 迁入 `Board`；`apply_rules` 在 W/H 变化时重建。
 - `apply_snapshot`/`apply_public` 用 Task 1 协议层解码，保持现有颜色引用/差分键/`since` 规则。
@@ -278,7 +278,7 @@ Expected: 编译失败，`Board` 未定义。
 - `PublicClient::run` 用 `ITransport` 连接 `wss://.../ws?public=1&since=...`，断线重连；只调 `Board`。
 - `TcpTransport` 包装 `tcSocket`；URL/代理解析沿用 `main.cpp` 现有逻辑。
 
-- [ ] **Step 4: 改造 replay_main 并跑离线基准**
+- [x] **Step 4: 改造 replay_main 并跑离线基准**
 
 `testfiles/replay_main.cpp` 不再 `#include "../main.cpp"`；改为 `paintboard::Board` + `protocol::parse_rules` + `zstd_decode_one`。命令：
 
@@ -290,7 +290,7 @@ cmp /tmp/replay.ppm .protocol/ref_t.ppm && echo "replay_main MATCH"
 
 Expected: `replay_main MATCH`，`since=24144972`。
 
-- [ ] **Step 5: 跑 Board 测试与公共回归**
+- [x] **Step 5: 跑 Board 测试与公共回归**
 
 ```bash
 make test-board && ./testfiles/board_test
@@ -300,7 +300,7 @@ cmp /tmp/board.ppm .protocol/public_board.ppm && echo "pub_apply MATCH"
 
 Expected: 两个 MATCH。
 
-- [ ] **Step 6: 提交**
+- [x] **Step 6: 提交**
 
 ```bash
 git add include/paintboard/board.hpp src/board src/net src/base testfiles/board_test.cpp testfiles/replay_main.cpp Makefile
@@ -320,7 +320,7 @@ git -c user.name="HDS-Sgt" -c user.email="zhuliqinF1@163.com" commit -m "refacto
 - Consumes: Task 1 的 `PaintOp`。
 - Produces: `PaintQueue`，签名见 spec §6.2；`Stats` 含 `total` 与 `per_group[3]`。
 
-- [ ] **Step 1: 写队列计数测试**
+- [x] **Step 1: 写队列计数测试**
 
 ```cpp
 #include "paintboard/paint_queue.hpp"
@@ -350,21 +350,21 @@ int main() {
 }
 ```
 
-- [ ] **Step 2: 运行测试，确认失败**
+- [x] **Step 2: 运行测试，确认失败**
 
 Run: `make test-queue`
 Expected: 编译失败，`PaintQueue` 未定义。
 
-- [ ] **Step 3: 实现 PaintQueue**
+- [x] **Step 3: 实现 PaintQueue**
 
 `multiset` 按 `(due, seq)` 排序；`push` 补 `seq` 并原子递增计数；`take_due` 只移动；`requeue` 只插回；`consume` 减计数；`remove_if` 在锁内删除并减计数，返回被删 op。
 
-- [ ] **Step 4: 运行测试**
+- [x] **Step 4: 运行测试**
 
 Run: `make test-queue && ./testfiles/queue_test`
 Expected: 退出 0。
 
-- [ ] **Step 5: 提交**
+- [x] **Step 5: 提交**
 
 ```bash
 git add include/paintboard/paint_queue.hpp src/paint/queue.cpp testfiles/queue_test.cpp Makefile
@@ -430,7 +430,7 @@ public:
 }
 ```
 
-- [ ] **Step 1: 写假 transport 测试**
+- [x] **Step 1: 写假 transport 测试**
 
 `testfiles/fake_transport_test.cpp` 用 `FakeTransport` 记录发送的 BATCH，向 `WorkConnection` 注入 TICK：
 
@@ -440,25 +440,25 @@ public:
 4. 结果不足：fake 只回 1 条而 pend 有 2 条；`poll()` 后 pend 仍剩 1 条。
 5. 断线：`take_pending()` 只返回绘画 op，不返回 bind；重连后 bind 重新请求。
 
-- [ ] **Step 2: 运行测试，确认失败**
+- [x] **Step 2: 运行测试，确认失败**
 
 Run: `make test-fake-transport`
 Expected: 编译失败，painter/WorkConnection 未定义。
 
-- [ ] **Step 3: 实现 TokenPainter**
+- [x] **Step 3: 实现 TokenPainter**
 
 按 spec §6.4：`mutex` 保护字段；`submit` 更新 `p_*`、`inflight++`、outbox；`on_paint_result` 处理 OK/COOLING/SlotInvalid/Error；COOLING 恢复 `p_* = a_*` 并设 `not_before`；`on_lost` 清绑定/在途；`on_brush` 更新 `a_*` 与 `p_*`。
 
-- [ ] **Step 4: 实现 WorkConnection**
+- [x] **Step 4: 实现 WorkConnection**
 
 `flush` 先发所有 `wants_bind`，再发 outbox；`pend` 保存 `{slot, op, is_bind}`；`poll` 解析 TICK，按 pend 顺序把结果分给 painter；`take_pending` 只取绘画 op 并清空对应 pend；`all_bound` 全 painter `view().bound`。
 
-- [ ] **Step 5: 运行测试**
+- [x] **Step 5: 运行测试**
 
 Run: `make test-fake-transport && ./testfiles/fake_transport_test`
 Expected: 五个场景全部断言通过。
 
-- [ ] **Step 6: 提交**
+- [x] **Step 6: 提交**
 
 ```bash
 git add include/paintboard/painter.hpp src/paint/token_painter.cpp src/net/work_connection.* testfiles/fake_transport_test.cpp Makefile
@@ -515,7 +515,7 @@ public:
 }
 ```
 
-- [ ] **Step 1: 写目标构建测试**
+- [x] **Step 1: 写目标构建测试**
 
 `testfiles/classic_target_test.cpp`：
 
@@ -552,24 +552,24 @@ int main() {
 }
 ```
 
-- [ ] **Step 2: 运行测试，确认失败**
+- [x] **Step 2: 运行测试，确认失败**
 
 Run: `make test-classic-target`
 Expected: 编译失败。
 
-- [ ] **Step 3: 搬 Target/Plan/生产者**
+- [x] **Step 3: 搬 Target/Plan/生产者**
 
 - `build_target` 复用现有 `build_target`：读图片/`--draw`、裁剪到画布、算 bbox、`known_idx`、`sp_pts`。
 - `Plan` 复用 `g_enq/g_enq_s/g_done` 语义。
 - `ClassicScheduler` 搬 `paint_worker/repair_worker/sonar_worker`、`dispatch_ops` 的过滤/选槽/冷却/入队规则；生产者只通过 `IPainter::view()` 读槽位，不再直接读 `wk.sl`。
 - `step` 调 `q_take_due` + 派发；`on_tick` 处理 OK/COOLING/释放；`on_disconnect` 处理 `take_pending` 的 op。
 
-- [ ] **Step 4: 运行测试**
+- [x] **Step 4: 运行测试**
 
 Run: `make test-classic-target && ./testfiles/classic_target_test`
 Expected: 退出 0。
 
-- [ ] **Step 5: 提交**
+- [x] **Step 5: 提交**
 
 ```bash
 git add src/scheduler/classic_scheduler.* testfiles/classic_target_test.cpp Makefile
@@ -602,23 +602,23 @@ public:
 int main(int argc, char** argv); // 解析 CLI，构造 Config，调用 Engine
 ```
 
-- [ ] **Step 1: 写 CLI 解析冒烟测试**
+- [x] **Step 1: 写 CLI 解析冒烟测试**
 
 `testfiles/cli_test.cpp` 断言：`--draw 1,2,FF0000` 解析为 `Draw{1,2,0xFF0000FF}`；`--limit 10`、`--paint-loop 2`、`--observe` 字段正确；未知参数返回非 0。
 
-- [ ] **Step 2: 运行测试，确认失败**
+- [x] **Step 2: 运行测试，确认失败**
 
 Run: `make test-cli`
 Expected: 编译失败。
 
-- [ ] **Step 3: 实现 CLI 与 Engine**
+- [x] **Step 3: 实现 CLI 与 Engine**
 
 - 搬现有参数解析，保持 `--token*`、`--tokens`、`--image/--ppm`、`--offset`、`--limit`、`--dry-run`、`--paint-loop`、`--observe`、`--sonar-out`、`--board-out`。
 - `Engine::run` 按 spec §6.7：connect → RULES → Board → scheduler.prepare → bind → loop(poll/step/flush) → stop。
 - 公共线程可选；纯公共模式只跑 PublicClient。
 - `Makefile` 增加 `paintboard_new`，链接全部 `src/**/*.cpp`；旧 `main` 仍由 `main.cpp` 构建。
 
-- [ ] **Step 4: 跑 CLI 测试与纯公共冒烟**
+- [x] **Step 4: 跑 CLI 测试与纯公共冒烟**
 
 ```bash
 make test-cli && ./testfiles/cli_test
@@ -627,7 +627,7 @@ timeout 20 ./paintboard_new --observe
 
 Expected: `cli_test` 退出 0；`paintboard_new` 打印 `RULES` 并收到 `SNAPSHOT/PUBLIC`。
 
-- [ ] **Step 5: 跑一次绑定/绘画冒烟**
+- [x] **Step 5: 跑一次绑定/绘画冒烟**
 
 ```bash
 HTTPS_PROXY=http://127.0.0.1:7890 timeout 30 ./paintboard_new --dry-run
@@ -636,7 +636,7 @@ HTTPS_PROXY=http://127.0.0.1:7890 timeout 30 ./paintboard_new --draw 100,100,FF0
 
 Expected: 绑定成功、`OK` 至少 1 条、退出 0。
 
-- [ ] **Step 6: 提交**
+- [x] **Step 6: 提交**
 
 ```bash
 git add src/app src/net include/paintboard/config.hpp Makefile testfiles/cli_test.cpp
@@ -657,11 +657,11 @@ git -c user.name="HDS-Sgt" -c user.email="zhuliqinF1@163.com" commit -m "refacto
 - Consumes: Task 6 的 `Engine`。
 - Produces: 最终 `main` 二进制，CLI 与旧版一致。
 
-- [ ] **Step 1: 切换构建目标**
+- [x] **Step 1: 切换构建目标**
 
 `make` 生成 `main` 来自 `src/app/main.cpp` + 全部 `src/`；`make legacy` 可选编译 `legacy/main_legacy.cpp` 作对照，不默认构建。
 
-- [ ] **Step 2: 跑离线全量回归**
+- [x] **Step 2: 跑离线全量回归**
 
 ```bash
 make clean && make
@@ -675,7 +675,7 @@ cmp /tmp/board.ppm .protocol/public_board.ppm && echo "pub_apply MATCH"
 
 Expected: 全部 MATCH/PASS。
 
-- [ ] **Step 3: 跑 60s 线上验收**
+- [x] **Step 3: 跑 60s 线上验收**
 
 ```bash
 HTTPS_PROXY=http://127.0.0.1:7890 timeout 60 ./main --image target.png --paint-loop 1 --daemon
@@ -683,13 +683,13 @@ HTTPS_PROXY=http://127.0.0.1:7890 timeout 60 ./main --image target.png --paint-l
 
 Expected: `passes` 持续增长或至少完成 1 轮；`ok[paint]` 增长；无 `abort`；repair/sonar 组不饿死。
 
-- [ ] **Step 4: 更新文档**
+- [x] **Step 4: 更新文档**
 
 - `AGENTS.md` §3 文件地图改为新目录；§4 构建命令改为 `make`；保留离线回归与调度器不变量。
 - `README.md` 构建/测试命令改为 `make`，目录结构更新。
 - `testfiles/README.md` 增加 `queue_test/fake_transport_test/classic_target_test/cli_test/alternate_scheduler_test`。
 
-- [ ] **Step 5: 提交**
+- [x] **Step 5: 提交**
 
 ```bash
 git add Makefile legacy AGENTS.md README.md testfiles/README.md .gitignore
@@ -709,7 +709,7 @@ git -c user.name="HDS-Sgt" -c user.email="zhuliqinF1@163.com" commit -m "refacto
 - Consumes: Task 3 `PaintQueue`，Task 4 `IPainter`，Task 5 `IScheduler`。
 - Produces: `RoundRobinScheduler final : IScheduler`，只按队列顺序轮流给空闲 painter；不依赖 `Target/Plan`。
 
-- [ ] **Step 1: 写替代调度器测试**
+- [x] **Step 1: 写替代调度器测试**
 
 `testfiles/alternate_scheduler_test.cpp` 用 `FakePainter`（实现 `IPainter`，`submit` 记录 op）和 `PaintQueue`：
 
@@ -717,16 +717,16 @@ git -c user.name="HDS-Sgt" -c user.email="zhuliqinF1@163.com" commit -m "refacto
 2. 全部 painter 都 `can_accept=false` 时，`step` 不再派发，op 留在队列。
 3. 换回 `ClassicScheduler` 的接口不需要改 `PaintQueue`/`FakePainter`（编译期证明）。
 
-- [ ] **Step 2: 运行测试，确认失败**
+- [x] **Step 2: 运行测试，确认失败**
 
 Run: `make test-alternate-scheduler`
 Expected: 编译失败。
 
-- [ ] **Step 3: 实现 RoundRobinScheduler**
+- [x] **Step 3: 实现 RoundRobinScheduler**
 
 `step` 从 `PaintQueue::take_due` 取 op，循环 painter 列表，找 `can_accept` 的槽位 `submit`；没派发的 `requeue`。`on_tick` 只从结果里把 OK 的 op 标记完成（测试不需要 Target）。
 
-- [ ] **Step 4: 运行测试并做最终检查**
+- [x] **Step 4: 运行测试并做最终检查**
 
 ```bash
 make test-alternate-scheduler && ./testfiles/alternate_scheduler_test
@@ -736,7 +736,7 @@ git status --short
 
 Expected: 测试通过；`git status` 只显示预期改动；无 token/二进制进暂存区。
 
-- [ ] **Step 5: 提交**
+- [x] **Step 5: 提交**
 
 ```bash
 git add src/scheduler/round_robin.* testfiles/alternate_scheduler_test.cpp Makefile
