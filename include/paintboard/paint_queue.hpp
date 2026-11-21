@@ -22,6 +22,7 @@ class PaintQueue {
   std::uint64_t push(PaintOp op);
   void take_due(Tick now, std::vector<PaintOp>& out);
   void requeue(PaintOp op);
+  void restore_consumed(PaintOp op);
   void consume(const PaintOp& op);
   std::vector<PaintOp> remove_if(
       const std::function<bool(const PaintOp&)>& predicate);

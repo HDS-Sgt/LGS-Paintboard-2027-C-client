@@ -48,6 +48,12 @@ void PaintQueue::requeue(PaintOp op) {
   ops_.insert(op);
 }
 
+void PaintQueue::restore_consumed(PaintOp op) {
+  std::lock_guard<std::mutex> lock(mu_);
+  ops_.insert(op);
+  count_add(op.group);
+}
+
 void PaintQueue::consume(const PaintOp& op) {
   std::lock_guard<std::mutex> lock(mu_);
   count_remove(op.group);

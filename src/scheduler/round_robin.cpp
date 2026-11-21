@@ -58,7 +58,8 @@ void RoundRobinScheduler::on_tick(const TickEvent& event) {
 void RoundRobinScheduler::on_disconnect(std::vector<PaintOp> pending) {
   for (PaintOp& op : pending) {
     op.due = 0;
-    queue_.requeue(op);
+    // pending 里的操作在发送时已经 consume，重排必须把计数加回来。
+    queue_.restore_consumed(op);
   }
 }
 

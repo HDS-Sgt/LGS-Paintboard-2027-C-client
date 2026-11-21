@@ -465,7 +465,7 @@ void ClassicScheduler::on_tick(const TickEvent& event) {
     } else if (result.status == PaintStatus::Cooling) {
       PaintOp retry = op;
       retry.due = 0; // ready_for 的 not_before 会在冷却期内挡住派发
-      deps_.queue.requeue(retry);
+      deps_.queue.restore_consumed(retry);
     } else {
       if (op.group == Group::Sonar)
         plan_.release_sonar(op.idx);
@@ -478,7 +478,8 @@ void ClassicScheduler::on_tick(const TickEvent& event) {
 void ClassicScheduler::on_disconnect(std::vector<PaintOp> pending) {
   for (PaintOp& op : pending) {
     op.due = 0;
-    deps_.queue.requeue(op);
+    // pending 里的操作在发送时已经 consume，重排必须把计数加回来。
+    deps_.queue.restore_consumed(op);
   }
 }
 

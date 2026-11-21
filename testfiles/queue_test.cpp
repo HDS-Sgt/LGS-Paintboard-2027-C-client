@@ -43,5 +43,22 @@ int main() {
   });
   assert(removed.size() == 2);
   assert(q.size() == 0);
+
+  // 发送时已 consume，冷却/断线重排必须把计数加回来。
+  paintboard::PaintOp d;
+  d.id = 4;
+  d.idx = 13;
+  d.color = 0xFF0000FFu;
+  d.group = paintboard::Group::Paint;
+  d.due = 0;
+  q.push(d);
+  due.clear();
+  q.take_due(0, due);
+  assert(due.size() == 1);
+  q.consume(due[0]);
+  assert(q.size() == 0);
+  q.restore_consumed(due[0]);
+  assert(q.size() == 1);
+  assert(q.size(paintboard::Group::Paint) == 1);
   return 0;
 }
