@@ -141,4 +141,4 @@ target_*.png         示例目标图
 
 ## 许可证
 
-本仓库尚未指定开源许可证。`repo/` 下的上游 `ikapb` 项目使用 MIT 许可证（Copyright © 2025 Ikaleio）；第三方头文件 `stb_image.h`、zstd 头文件遵循各自许可证。
+本仓库使用 **BSD 3-Clause** 许可证，全文见 [`LICENSE`](LICENSE)。`repo/` 下的上游 `ikapb` 项目使用 MIT 许可证（Copyright © 2025 Ikaleio）；第三方头文件 `stb_image.h`、zstd 头文件遵循各自许可证。
