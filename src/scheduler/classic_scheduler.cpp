@@ -322,6 +322,9 @@ void ClassicScheduler::prepare() {
   k_ = view.rules.cooldown_per_px;
   plan_.alloc(static_cast<std::size_t>(width_) * height_,
               target_.known_idx.size());
+  deps_.log.logf("[paint] target known={} bbox={},{}..{},{} sp={}\n",
+                 target_.known_idx.size(), target_.bb_x0, target_.bb_y0,
+                 target_.bb_x1, target_.bb_y1, target_.sp_pts.size());
 }
 
 void ClassicScheduler::on_all_bound() {

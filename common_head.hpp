@@ -57,7 +57,7 @@ inline void print_impl(const char* s) {while (*s) {cout << *s++;}}
 template<typename T, typename... Args>inline void print_impl(const char* s, const T& x, const Args&... args) {while (*s) {if (s[0] == '{' && s[1] == '}') {cout << x;print_impl(s + 2, args...);return;}cout << *s++;}}
 template<typename... Args>inline void print(const char* s, const Args&... args) {print_impl(s, args...);}
 inline void error_impl(const char*s){while(*s)std::cerr<<*s++;}template<class T,class...A>inline void error_impl(const char*s,const T&x,const A&...a){while(*s){if(s[0]=='{'&&s[1]=='}'){std::cerr<<x;error_impl(s+2,a...);return;}std::cerr<<*s++;}}template<class...A>inline void error(const char*s,const A&...a){error_impl(s,a...);}
-void IOS() {std::ios::sync_with_stdio(0);std::cin.tie(0);}}
+inline void IOS() {std::ios::sync_with_stdio(0);std::cin.tie(0);}}
 template<typename T>FORCE_INLINE T min(T a, T b) {ret (a < b)?a:b;}
 template<typename T>FORCE_INLINE T max(T a, T b) {ret (a > b)?a:b;}
 using packin::read;

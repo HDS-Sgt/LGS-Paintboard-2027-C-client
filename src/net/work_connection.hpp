@@ -31,6 +31,8 @@ class WorkConnection {
 
   Rules rules() const;
   bool all_bound() const;
+  // 服务器时钟（微秒），与 TICK 里的 brush.t / cooling 值同一时间域。
+  Tick now() const { return clock_.now(); }
 
   // 断线时把已发出但没等到结果的绘画交回调度器；bind 不计入。
   std::vector<PaintOp> take_pending();

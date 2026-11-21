@@ -8,12 +8,15 @@ QUEUE_SRCS = src/paint/queue.cpp
 PAINTER_SRCS = src/paint/token_painter.cpp
 WORK_SRCS = src/net/work_connection.cpp $(PAINTER_SRCS) $(PROTO_SRCS)
 CLASSIC_SRCS = src/scheduler/classic_scheduler.cpp $(QUEUE_SRCS) $(BOARD_SRCS)
+APP_SRCS = src/app/cli.cpp src/app/engine.cpp src/app/main.cpp $(CLASSIC_SRCS) \
+	src/paint/token_painter.cpp src/net/transport.cpp src/net/public_client.cpp \
+	src/net/work_connection.cpp
 
-.PHONY: all test test-protocol test-board test-replay test-net test-queue test-painter test-classic-target clean
+.PHONY: all test test-protocol test-board test-replay test-net test-queue test-painter test-classic-target test-cli clean
 
 all: main
 
-test: test-protocol test-board test-replay test-net test-queue test-painter test-classic-target
+test: test-protocol test-board test-replay test-net test-queue test-painter test-classic-target test-cli
 
 test-net:
 	$(CXX) $(CXXFLAGS) -fsyntax-only src/net/transport.cpp src/net/public_client.cpp src/net/work_connection.cpp
@@ -23,6 +26,8 @@ test-queue: testfiles/queue_test
 test-painter: testfiles/fake_transport_test
 
 test-classic-target: testfiles/classic_target_test
+
+test-cli: testfiles/cli_test
 
 test-protocol: testfiles/protocol_test testfiles/tick_selftest
 
@@ -51,5 +56,11 @@ testfiles/fake_transport_test: testfiles/fake_transport_test.cpp $(WORK_SRCS)
 testfiles/classic_target_test: testfiles/classic_target_test.cpp $(CLASSIC_SRCS)
 	$(CXX) $(CXXFLAGS) $^ -o $@ $(LDLIBS)
 
+testfiles/cli_test: testfiles/cli_test.cpp src/app/cli.cpp
+	$(CXX) $(CXXFLAGS) $^ -o $@ $(LDLIBS)
+
+paintboard_new: $(APP_SRCS)
+	$(CXX) $(CXXFLAGS) $^ -o $@ $(LDLIBS)
+
 clean:
-	rm -f testfiles/protocol_test testfiles/tick_selftest testfiles/board_test testfiles/replay_main testfiles/queue_test testfiles/fake_transport_test testfiles/classic_target_test
+	rm -f paintboard_new testfiles/protocol_test testfiles/tick_selftest testfiles/board_test testfiles/replay_main testfiles/queue_test testfiles/fake_transport_test testfiles/classic_target_test testfiles/cli_test
