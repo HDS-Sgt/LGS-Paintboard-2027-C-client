@@ -12,11 +12,11 @@ APP_SRCS = src/app/cli.cpp src/app/engine.cpp src/app/main.cpp $(CLASSIC_SRCS) \
 	src/paint/token_painter.cpp src/net/transport.cpp src/net/public_client.cpp \
 	src/net/work_connection.cpp
 
-.PHONY: all test test-protocol test-board test-replay test-net test-queue test-painter test-classic-target test-cli clean
+.PHONY: all test test-protocol test-board test-replay test-net test-queue test-painter test-classic-target test-cli test-alternate-scheduler clean
 
 all: main
 
-test: test-protocol test-board test-replay test-net test-queue test-painter test-classic-target test-cli
+test: test-protocol test-board test-replay test-net test-queue test-painter test-classic-target test-cli test-alternate-scheduler
 
 test-net:
 	$(CXX) $(CXXFLAGS) -fsyntax-only src/net/transport.cpp src/net/public_client.cpp src/net/work_connection.cpp
@@ -28,6 +28,8 @@ test-painter: testfiles/fake_transport_test
 test-classic-target: testfiles/classic_target_test
 
 test-cli: testfiles/cli_test
+
+test-alternate-scheduler: testfiles/alternate_scheduler_test
 
 test-protocol: testfiles/protocol_test testfiles/tick_selftest
 
@@ -59,8 +61,12 @@ testfiles/classic_target_test: testfiles/classic_target_test.cpp $(CLASSIC_SRCS)
 testfiles/cli_test: testfiles/cli_test.cpp src/app/cli.cpp
 	$(CXX) $(CXXFLAGS) $^ -o $@ $(LDLIBS)
 
+testfiles/alternate_scheduler_test: testfiles/alternate_scheduler_test.cpp \
+		src/scheduler/round_robin.cpp $(QUEUE_SRCS)
+	$(CXX) $(CXXFLAGS) $^ -o $@ $(LDLIBS)
+
 main: $(APP_SRCS)
 	$(CXX) $(CXXFLAGS) $^ -o $@ $(LDLIBS)
 
 clean:
-	rm -f main paintboard_new testfiles/protocol_test testfiles/tick_selftest testfiles/board_test testfiles/replay_main testfiles/queue_test testfiles/fake_transport_test testfiles/classic_target_test testfiles/cli_test
+	rm -f main paintboard_new testfiles/protocol_test testfiles/tick_selftest testfiles/board_test testfiles/replay_main testfiles/queue_test testfiles/fake_transport_test testfiles/classic_target_test testfiles/cli_test testfiles/alternate_scheduler_test

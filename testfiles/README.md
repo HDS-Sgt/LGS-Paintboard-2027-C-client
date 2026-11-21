@@ -51,6 +51,7 @@ g++ -std=c++20 -O2 -Wall -Wextra -I. -I.deps/zstd-dev/usr/include \
 | `fake_transport_test.cpp` | `TokenPainter + WorkConnection`：绑定、OK、COOLING、结果不足、断线重连 |
 | `classic_target_test.cpp` | `build_target` 与 `Plan` 的 known_idx/bbox/claim/done |
 | `cli_test.cpp` | 新 CLI 的参数解析 |
+| `alternate_scheduler_test.cpp` | `RoundRobinScheduler`：证明 `IScheduler` 可替换，且不改 `PaintQueue`/`IPainter` 接口 |
 | `tick_probe.cpp` / `tick_probe2.cpp` / `tick_probe3.cpp` | 发 BATCH 观察 TICK（3 为最终可用版） |
 | `pub_probe.cpp` | 连 `/ws?public=1` 等 SNAPSHOT/PUBLIC |
 | `pub_decode.cpp` | `usage: pub_decode <board.zst> [changes.csv] [W] [H]`，输出 `tick,idx,w` |
