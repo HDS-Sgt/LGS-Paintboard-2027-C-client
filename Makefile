@@ -5,17 +5,21 @@ LDLIBS = -lssl -lcrypto -pthread /lib/x86_64-linux-gnu/libzstd.so.1
 PROTO_SRCS = src/protocol/wire.cpp src/base/log.cpp src/base/clock.cpp
 BOARD_SRCS = src/board/board.cpp $(PROTO_SRCS)
 QUEUE_SRCS = src/paint/queue.cpp
+PAINTER_SRCS = src/paint/token_painter.cpp
+WORK_SRCS = src/net/work_connection.cpp $(PAINTER_SRCS) $(PROTO_SRCS)
 
-.PHONY: all test test-protocol test-board test-replay test-net test-queue clean
+.PHONY: all test test-protocol test-board test-replay test-net test-queue test-painter clean
 
 all: main
 
-test: test-protocol test-board test-replay test-net test-queue
+test: test-protocol test-board test-replay test-net test-queue test-painter
 
 test-net:
-	$(CXX) $(CXXFLAGS) -fsyntax-only src/net/transport.cpp src/net/public_client.cpp
+	$(CXX) $(CXXFLAGS) -fsyntax-only src/net/transport.cpp src/net/public_client.cpp src/net/work_connection.cpp
 
 test-queue: testfiles/queue_test
+
+test-painter: testfiles/fake_transport_test
 
 test-protocol: testfiles/protocol_test testfiles/tick_selftest
 
@@ -38,5 +42,8 @@ testfiles/replay_main: testfiles/replay_main.cpp $(BOARD_SRCS)
 testfiles/queue_test: testfiles/queue_test.cpp $(QUEUE_SRCS)
 	$(CXX) $(CXXFLAGS) $^ -o $@ $(LDLIBS)
 
+testfiles/fake_transport_test: testfiles/fake_transport_test.cpp $(WORK_SRCS)
+	$(CXX) $(CXXFLAGS) $^ -o $@ $(LDLIBS)
+
 clean:
-	rm -f testfiles/protocol_test testfiles/tick_selftest testfiles/board_test testfiles/replay_main testfiles/queue_test
+	rm -f testfiles/protocol_test testfiles/tick_selftest testfiles/board_test testfiles/replay_main testfiles/queue_test testfiles/fake_transport_test
