@@ -29,7 +29,7 @@ g++ -std=c++20 -O2 -Wall -Wextra -I. -I.deps/zstd-dev/usr/include \
     /lib/x86_64-linux-gnu/libzstd.so.1
 ```
 
-`replay_main`、`tick_selftest`、`board_test`、`queue_test`、`fake_transport_test`、`classic_target_test`、`cli_test` 都走 `make test`，不要再用旧的单文件 `#include "../main.cpp"` 方式编译。
+`replay_main`、`tick_selftest`、`board_test`、`queue_test`、`fake_transport_test`、`classic_target_test`、`classic_scheduler_test`、`cli_test` 都走 `make test`，不要再用旧的单文件 `#include "../main.cpp"` 方式编译。
 
 ## 文件清单
 
@@ -50,6 +50,7 @@ g++ -std=c++20 -O2 -Wall -Wextra -I. -I.deps/zstd-dev/usr/include \
 | `queue_test.cpp` | `PaintQueue` 计数语义（取出不减 / consume 才减 / requeue 不变） |
 | `fake_transport_test.cpp` | `TokenPainter + WorkConnection`：绑定、OK、COOLING、结果不足、断线重连 |
 | `classic_target_test.cpp` | `build_target` 与 `Plan` 的 known_idx/bbox/claim/done |
+| `classic_scheduler_test.cpp` | `ClassicScheduler` 的 step 派发、OK/Cooling/Error、断线重排与完成语义 |
 | `cli_test.cpp` | 新 CLI 的参数解析 |
 | `alternate_scheduler_test.cpp` | `RoundRobinScheduler`：证明 `IScheduler` 可替换，且不改 `PaintQueue`/`IPainter` 接口 |
 | `tick_probe.cpp` / `tick_probe2.cpp` / `tick_probe3.cpp` | 发 BATCH 观察 TICK（3 为最终可用版） |
