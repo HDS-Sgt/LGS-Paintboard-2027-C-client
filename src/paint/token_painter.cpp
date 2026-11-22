@@ -102,7 +102,9 @@ void TokenPainter::on_bind_result(bool ok) {
     want_bind_ = false;
   } else {
     bound_ = false;
-    want_bind_ = true;
+    // 失败 token 不再每 50ms 重绑，避免刷屏和占满绑定队列；
+    // 重连时 request_bind() 会重新置 want_bind_。
+    want_bind_ = false;
   }
 }
 

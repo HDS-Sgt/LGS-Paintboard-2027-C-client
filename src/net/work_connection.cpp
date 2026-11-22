@@ -30,6 +30,7 @@ void WorkConnection::connect() {
 
   pend_.clear();
   bind_pending_.clear();
+  bind_fail_count_ = 0;
 
   const auto deadline =
       std::chrono::steady_clock::now() + std::chrono::seconds(15);
@@ -161,6 +162,8 @@ void WorkConnection::handle_tick(TickEvent& event) {
     IPainter* painter = find(rec.slot);
     if (rec.bind) {
       bind_pending_.erase(rec.slot);
+      if (result.status != PaintStatus::Ok)
+        ++bind_fail_count_;
       if (painter)
         painter->on_bind_result(result.status == PaintStatus::Ok);
       continue;
@@ -188,6 +191,15 @@ void WorkConnection::handle_tick(TickEvent& event) {
       painter->on_brush(brush.idx, brush.t);
 
   event.results = std::move(paint_results);
+}
+
+bool WorkConnection::binds_settled() const {
+  if (!bind_pending_.empty())
+    return false;
+  for (const IPainter* painter : painters_)
+    if (painter && painter->view().want_bind)
+      return false;
+  return true;
 }
 
 bool WorkConnection::all_bound() const {

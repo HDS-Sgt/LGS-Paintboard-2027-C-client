@@ -142,11 +142,6 @@ int Engine::run_work() {
       }
 
       while (!stop_.load() && !status_.stop.load()) {
-        if (scheduler_ && !started && work_->all_bound()) {
-          scheduler_->on_all_bound();
-          started = true;
-        }
-
         auto event = work_->poll(std::chrono::milliseconds(50));
         if (event) {
           board_.apply_sonar(event->sonar);
@@ -156,6 +151,22 @@ int Engine::run_work() {
             log_.logf("[work] dry-run: first TICK received\n");
             return 0;
           }
+        }
+
+        if (scheduler_ && !started && work_->binds_settled()) {
+          std::size_t bound = 0;
+          for (const IPainter* painter : painter_ptrs_)
+            if (painter && painter->view().bound)
+              ++bound;
+          log_.logf("[work] bind settled: {}/{} bound, {} failed\n", bound,
+                    painter_ptrs_.size(), work_->bind_fail_count());
+          if (bound == 0) {
+            log_.logf("[work] no token bound; aborting\n");
+            status_.abort.store(true);
+            return 2;
+          }
+          scheduler_->on_all_bound();
+          started = true;
         }
 
         if (scheduler_) {

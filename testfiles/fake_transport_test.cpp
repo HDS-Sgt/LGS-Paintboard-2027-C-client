@@ -182,6 +182,27 @@ void test_bind_and_all_bound() {
   check(h->conn->all_bound(), "all painters bound");
 }
 
+void test_failed_bind_settles_without_retry() {
+  auto h = make_harness(2);
+  h->conn->request_all_binds();
+  h->conn->flush();
+  check(!h->conn->binds_settled(), "not settled while binds pending");
+
+  // slot 0 OK, slot 1 BAD_PAINT_TOKEN (3)。
+  h->fake->inbox.push_back(make_tick(1, {}, {0, 3}, {0, 0}));
+  auto event = h->conn->poll(std::chrono::milliseconds(10));
+  check(event.has_value(), "mixed bind result tick parsed");
+  check(h->conn->binds_settled(), "failed bind still settles the batch");
+  check(h->conn->bind_fail_count() == 1, "failure counted");
+  check(h->painters[0]->view().bound, "good token bound");
+  check(!h->painters[1]->view().bound, "bad token stays unbound");
+  check(!h->painters[1]->view().want_bind, "bad token does not retry");
+
+  const std::size_t sent_before = h->fake->sent.size();
+  h->conn->flush();
+  check(h->fake->sent.size() == sent_before, "no rebind flush for bad token");
+}
+
 void test_submit_and_ok() {
   auto h = make_harness(1);
   h->conn->request_all_binds();
@@ -328,6 +349,7 @@ void test_send_failure_keeps_outbox() {
 
 int main() {
   test_bind_and_all_bound();
+  test_failed_bind_settles_without_retry();
   test_submit_and_ok();
   test_cooling_keeps_same_op();
   test_insufficient_results_keep_pending();
@@ -335,7 +357,7 @@ int main() {
   test_send_failure_keeps_outbox();
 
   if (failures == 0) {
-    std::cout << "fake_transport_test OK (6 scenarios)\n";
+    std::cout << "fake_transport_test OK (7 scenarios)\n";
     return 0;
   }
   std::cerr << failures << " failure(s)\n";

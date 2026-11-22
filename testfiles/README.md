@@ -48,7 +48,7 @@ g++ -std=c++20 -O2 -Wall -Wextra -I. -I.deps/zstd-dev/usr/include \
 | `protocol_test.cpp` | BATCH/TICK/RULES 协议层单元测试 |
 | `board_test.cpp` | `Board` 的 RULES/SNAPSHOT/PUBLIC/声纳应用与 RGB 导出 |
 | `queue_test.cpp` | `PaintQueue` 计数语义（取出不减 / consume 才减 / requeue 不变） |
-| `fake_transport_test.cpp` | `TokenPainter + WorkConnection`：绑定、OK、COOLING、结果不足、断线重连 |
+| `fake_transport_test.cpp` | `TokenPainter + WorkConnection`：绑定、绑定失败 settled 且不重绑、OK、COOLING、结果不足、断线重连、发送失败保留 outbox |
 | `classic_target_test.cpp` | `TargetBuilder`/`build_target` 与 `Plan` 的 known_idx/bbox/claim/done |
 | `classic_scheduler_test.cpp` | `ClassicScheduler` 的 step 派发、OK/Cooling/Error、断线重排、完成语义，以及 `ClassicResultHandler` 直测 |
 | `cli_test.cpp` | 新 CLI 的参数解析 |
