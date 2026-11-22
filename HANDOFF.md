@@ -5,7 +5,7 @@
 
 ## 0. 一分钟状态
 
-- 仓库：`HDS-Sgt/LGS-Paintboard-2027-C-client`，`main` 与 `origin/main` 同步，HEAD `efa2a46`。
+- 仓库：`HDS-Sgt/LGS-Paintboard-2027-C-client`，`main` 与 `origin/main` 同步，最新 HEAD 见 `git log -1`；本轮关键提交 `ba505d0`（NewSch1122）、`efa2a46`（README）、`a96ffcc`（本交接）。
 - 工作区：只有两个未跟踪文件 `main.cpp`（旧单文件副本）和 `targetII.png`（未被引用），是有意不提交的；其他干净。
 - 构建：`make -q` 返回 0（`./main` 与源码同步）；`make test` 已构建全部 14 个测试二进制。
 - 验证：14 个测试全部 rc=0；`replay_main` → `REPLAY_MATCH`；`pub_apply` → `PUB_APPLY_MATCH`（2026-11-22 18:30 复跑）。
