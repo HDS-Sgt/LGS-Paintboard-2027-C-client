@@ -13,6 +13,8 @@
 
 namespace paintboard {
 
+enum class SchedulerKind { Classic, NewSch1122 };
+
 struct Config {
   std::vector<TokenEntry> tokens;
   std::string image_path;
@@ -32,6 +34,7 @@ struct Config {
   std::uint32_t repair_follow = 2;
   std::uint64_t early_us = 0;
 
+  SchedulerKind scheduler = SchedulerKind::Classic;
   bool observe = false, daemon = false, dry_run = false;
   std::uint64_t limit = 0;
   std::string sonar_out, board_out;

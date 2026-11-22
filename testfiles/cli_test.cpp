@@ -42,11 +42,30 @@ void test_unknown_and_help() {
   assert(help.help);
 }
 
+void test_scheduler_flag() {
+  CliResult def = parse({"paintboard_new"});
+  assert(def.ok);
+  assert(def.config.scheduler == SchedulerKind::Classic);
+
+  CliResult new_sch = parse({"paintboard_new", "--scheduler", "NewSch1122"});
+  assert(new_sch.ok);
+  assert(new_sch.config.scheduler == SchedulerKind::NewSch1122);
+
+  CliResult dashed = parse({"paintboard_new", "--scheduler", "new-sch1122"});
+  assert(dashed.ok);
+  assert(dashed.config.scheduler == SchedulerKind::NewSch1122);
+
+  CliResult bad = parse({"paintboard_new", "--scheduler", "bogus"});
+  assert(!bad.ok);
+  assert(bad.error.find("unknown scheduler") != std::string::npos);
+}
+
 } // namespace
 
 int main() {
   test_draw_and_flags();
   test_unknown_and_help();
+  test_scheduler_flag();
   std::puts("cli_test OK");
   return 0;
 }

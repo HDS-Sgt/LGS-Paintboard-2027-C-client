@@ -30,6 +30,8 @@ class Plan {
   void alloc(std::size_t n, std::size_t need = 0);
 
   bool claim(std::uint32_t idx);
+  // repair 专用：允许认领已经 done 的像素；paint 的 claim 仍拒绝 done。
+  bool claim_repair(std::uint32_t idx);
   bool claim_sonar(std::uint32_t idx);
   bool claimed(std::uint32_t idx) const;
   bool claimed_sonar(std::uint32_t idx) const;

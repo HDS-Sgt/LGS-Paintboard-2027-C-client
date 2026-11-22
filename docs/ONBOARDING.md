@@ -16,6 +16,11 @@ make test            # 构建 Makefile 里的全部测试二进制，不运行
 ./testfiles/fake_transport_test
 ./testfiles/classic_target_test
 ./testfiles/classic_scheduler_test
+./testfiles/new_sch1122_test
+./testfiles/new_sch1122_paint_test
+./testfiles/new_sch1122_sonar_test
+./testfiles/new_sch1122_repair_test
+./testfiles/sonar_tiling_test
 ./testfiles/cli_test
 ./testfiles/alternate_scheduler_test
 ```
@@ -47,7 +52,9 @@ cmp /tmp/board.ppm .protocol/public_board.ppm && echo "pub_apply MATCH"
 | `src/net/work_connection.cpp` | 一条 `public=0` WS：绑定、组 BATCH、TICK 路由、`pend_` 顺序 | 像素该不该画 |
 | `src/scheduler/target_builder.cpp` | 目标图 → `Target`（known/known_idx/bbox/sp_pts） | 派发 |
 | `src/scheduler/result_handler.cpp` | `on_tick`/`on_disconnect` → `Plan`/`PaintQueue` 状态机 | 生产新 op |
-| `src/scheduler/classic_scheduler.cpp` | `ClassicScheduler`：策略 + 三个生产者 + pass 控制 | 协议编解码 |
+| `src/scheduler/classic_scheduler.cpp` | `ClassicScheduler`：策略 + 三个生产者 + pass 控制；`Plan`/`target_complete` 也定义在这里 | 协议编解码 |
+| `src/scheduler/new_sch1122.cpp` | `NewSch1122`：从 Classic 复制的实验调度器（`--scheduler newsch1122` 选用），声纳已改为密铺分块；共享 `Plan` 不在本文件 | 协议编解码 |
+| `src/scheduler/sonar_tiling.cpp` | 声纳菱形密铺：中心枚举、known 补射、按块分给 sonar 槽位 | 目标图 / 派发 |
 | `src/app/engine.cpp` | 组装、连接生命周期、公共线程、收尾 | 调度细节 |
 | `src/app/cli.cpp` | 参数、token 文件、默认值 | 运行状态 |
 | `legacy/main_legacy.cpp` | 旧单文件实现，只作历史对照，不参与构建 | 新功能 |
@@ -104,7 +111,8 @@ cmp /tmp/board.ppm .protocol/public_board.ppm && echo "pub_apply MATCH"
 | 一条 WS 的发送/接收 | `src/net/work_connection.cpp` | `fake_transport_test`、线上 `--dry-run` |
 | 目标图 / bbox / known_idx | `src/scheduler/target_builder.cpp` | `classic_target_test` |
 | 派发策略 / 三个生产者 | `src/scheduler/classic_scheduler.cpp` | `classic_scheduler_test`、线上 60s |
-| 新调度器 | 实现 `IScheduler` | `alternate_scheduler_test` |
+| 新调度器实验 / paint 矩形分块 / 密铺声纳 / repair 匀配 | `src/scheduler/new_sch1122.cpp` + `sonar_tiling.cpp`（`--scheduler newsch1122`） | `new_sch1122_test`、`new_sch1122_paint_test`、`new_sch1122_sonar_test`、`new_sch1122_repair_test`、`sonar_tiling_test`、线上 60s |
+| 新调度器接口 | 实现 `IScheduler` | `alternate_scheduler_test` |
 | CLI / token 文件 | `src/app/cli.cpp` | `cli_test` |
 | 生命周期 / 线程 | `src/app/engine.cpp` | `make test` + 线上冒烟 |
 

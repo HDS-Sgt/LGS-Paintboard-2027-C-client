@@ -98,7 +98,10 @@ src/
   board/board.cpp
   paint/             queue.cpp/token_painter.cpp
   net/               transport.cpp/public_client.cpp/work_connection.cpp
-  scheduler/         classic_scheduler.cpp（策略/生产者）
+  scheduler/         classic_scheduler.cpp（策略/生产者，Plan/target_complete 定义在此）
+                     new_sch1122.cpp（从 Classic 复制的实验调度器；--scheduler
+                     newsch1122 选用，声纳已改为密铺分块，只放本类方法，勿重复定义 Plan）
+                     sonar_tiling.cpp（声纳菱形密铺：中心枚举、known 补射、按块分槽位）
                      target_builder.cpp（目标图构建）
                      result_handler.cpp（TICK/断线 → Plan/Queue 状态机）
   app/               cli.cpp/engine.cpp/main.cpp（新入口）
@@ -119,7 +122,9 @@ testfiles/          探针与对拍程序；详见 testfiles/README.md
   replay_main.cpp   离线回放：Board + 协议层，快照/增量 → PPM
   tick_selftest.cpp BATCH/TICK/声纳/颜色自检
   board_test/queue_test/fake_transport_test/classic_target_test/
-  classic_scheduler_test/cli_test/alternate_scheduler_test
+  classic_scheduler_test/new_sch1122_test/new_sch1122_paint_test/
+  new_sch1122_sonar_test/new_sch1122_repair_test/sonar_tiling_test/
+  cli_test/alternate_scheduler_test
   pub_decode/pub_apply/web_test 等探针
 pull_pub.sh         走 7890 代理拉公共画面（HTTP），失败回退直连
 snap_retry.sh       快照重试（HTTP，成功后出 PPM/PNG）
@@ -140,6 +145,7 @@ snap_retry.sh       快照重试（HTTP，成功后出 PPM/PNG）
 - **声纳是逐 tick 的实时读数，会被别人覆盖**：每笔 `OK` 的声纳读的是该 tick 提交后的画面。一次画很多笔时，早先的格子可能在后续 tick 被别人写掉，`--sonar-out` 里看到的不一定还是你画的样子——这不是编码问题。
 - **发送失败不能丢 op**：`WorkConnection::flush` 先用 `outbox_snapshot()` 组 BATCH，`transport_->send` 成功后才 `take_outbox()` 清空。发送抛异常时 op 留在 painter，重连后重发；否则 `ClassicScheduler::step` 已 `queue.consume(op)`，op 却不在队列/outbox/pend 任何一处，`Plan` 认领会永久泄漏（历史 `target_done = need − 4` 的同类症状）。`fake_transport_test` 有对应场景。
 - **绑定失败不能阻塞启动**：bind 的 TICK 结果 `3 = BAD_PAINT_TOKEN`，表示该 token 已不是有效 paint token（同一 uid 重新申领会立刻让旧 token 失效，删除/吊销同理；`tokens.json` 里常混着旧 token）。`Engine` 只在 `WorkConnection::binds_settled()`（没有待回执 bind、也没有 painter 还想重绑）后启动生产者；失败的 `TokenPainter` 置 `want_bind_=false`，不再每轮 50ms 重绑，成功绑定的子集继续画。只有 bound=0 才 abort。旧行为等待 `all_bound()`（要求全部成功）会让少数坏 token 拖死整条连接：`target_90` 表现为 `painted=0 sent=0`。
+- **token 必须去重**：同一个 uid 绑到两个槽位时，服务器会把先绑的槽位判 `lost`；`TokenPainter::on_lost()` 会置回 `want_bind_=true`，于是每 50ms 重绑一次，`binds_settled()` 永远为 false、调度器不启动。症状是只打印 `RULES` + `[paint] target ...` 后静默、`painted=0`。`--tokens`/`tokens.json` 加载时已按 16 字节 token 去重（保留首次出现）；实测 1760 条目只有 1233 唯一、527 个重复，去重后 25s `painted=10449`。
 - **冷却/断线重排用 `restore_consumed`**：发送时已经 `consume`，不能再用“只插回、不动计数”的 `requeue`；断线后还要 `queue.recount()` 按真实 multiset 校正。`done()` 只在纯 paint 组、非 `--daemon`/`--paint-loop` 时按 `target_complete` 收尾；带 repair/sonar 的会话继续值守，Engine 另要求 `pending_paint_count()==0`。
 
 ### 调度器不变量（2026-11-20 踩坑后确认）
@@ -154,7 +160,11 @@ snap_retry.sh       快照重试（HTTP，成功后出 PPM/PNG）
 1. **认领按组语义**：paint 认领 `!g_done`；repair 认领前必须 `plan_done(idx)`（只修已经画好的像素）；**sonar 用独立的 `g_enq_s` 认领表**（2026-11-21 起），可以扫 bbox 网格上的任意点（包括还没画的，反正声纳画的也是目标色），不占 paint 的 `g_enq`，也不再受 `plan_done` 限制。2026-11-21 实测反例：sonar 不看 `g_done` 时会先认领未画像素并占住共享 `g_enq`，paint 再也认领不了，29 个 paint token 空转，整轮最后 ~90 个像素只有 ~0.6/s（全靠 sonar 慢慢挪过去），用户看到的就是“paint token 不动、只有声纳在动”。加上守卫后同一场景（97 槽位/40px）120s 内 pass 1 完整、paint 3424 笔（≈28/s）。**副作用**：paint 会把队列打到 `q_queue_cap`(2048)，sonar/repair 生产者被 `q_count < g_queue_cap` 挡住，只在队列低时才能认领；因此 paint 生产者的入队条件改成 `q_count + 256 < q_queue_cap`，给 sonar/repair 预留 256 个位置（否则 paint 独占队列时 sonar 一笔也发不出）。
 2. **派发规则**：G_SONAR 严格按 `seq` 取**队头** FIFO（固定网格扫描，禁止近点插队）；G_PAINT/G_REPAIR 按距离最近挑（repair 每像素只认领一次，不会被近点饿死）。**不做跨组代画**：repair/sonar 槽位只发本组的操作，本组没活就空等。曾试过“本组没有*到期* op 就代发 G_PAINT”，后收紧到“本组在 `live` 里一个 op 都没有（`lc[group]==0`）才代发”；2026-11-21 用 97 槽位/target_90 实测仍是 `ok[paint=21448 repair=710 sonar=309]`——代画让声纳/修复槽位被 paint 的活占满、扫描进度被拖慢（用户看到声纳仍聚集在少数网格点），因此把整段兜底**移除了**（`help=` 诊断保留，恒为 0）。`--repair-follow` 常驻槽位只接网格点 G_REPAIR、不代画。
 3. **`g_enq` 的跨组共享只发生在 paint↔repair**：sonar 已拆到独立 `g_enq_s`；所有释放路径（OK/解绑/失败/`q_drop_nonpaint`/`unstick_leaks`）都必须同步清 `g_enq_s`，否则声纳网格点会被永久占住。2026-11-21 实测 60s（97 槽位/target_90）：声纳认领覆盖 k=0..76（拆表前只到 7），`ok[paint=2466 repair=16 sonar=77]`、paint ≈42/s。
-4. **声纳按槽位分块、块内蛇形扫**：每个 sonar 槽位分到一段连续的列条带（`sbw=ceil(bw/sk)` 列），槽位内按行蛇形（奇数行反向）依次认领，相邻两点只差一个网格步（`stride` 像素），避免 FIFO 让槽位跨行跳（~50 px ⇒ `c0+k·d` 要 5–10 秒）。op 上带 `o.slot` 表示分块归属：`dispatch_ops` 的 sonar 分支只让它自己那个槽位接，槽位之间不抢；`COOLING` 重排队保留 `o.slot`，重连/槽位失效时丢弃并 `plan_release_s`。每槽 pending 上限 `sk*4`。2026-11-21 实测（97 槽位/target_90）：60s `ok[paint=2392 repair=215 sonar=252]`、sonar 认领覆盖 184 个不同 k（拆表前 81、未拆表 69 笔/60s）。`IKAPB_SC_LOG=1` 打印 `[sc] slot= k= idx=`。 **repair 同理**：`repair_worker` 只遍历 `build_target` 建好的 `g_known_idx`（目标像素的紧凑下标表，6150 个约 12s 一圈），**不再按画布下标 `0..N` 扫**——120x123 的目标在 1000x600 画布上只占右侧 50 列，按画布扫时 95% 的窗口是空白，一圈要 ~19.5 分钟，repair 看起来完全不动。pending 上限按 repair 槽位数放宽（`max(16, g_gslots[G_REPAIR])`），否则 49 个 repair 槽位最多只有 16 个有活。2026-11-21 实测（253 槽位/target.png）：单轮 100s `ok[paint=5935 repair=569 sonar=470]`；`--paint-loop 1` 120s `passes=1 ok[paint=6852 repair=114]`——绘制期间 repair 仍会空闲，因为每笔 `OK` 都自带该像素的新鲜声纳、`dmg=0`，而 pass 完成后 1s 就清 `g_done`，repair 没有复检窗口。
+4. **声纳按槽位分块、块内蛇形扫**：每个 sonar 槽位分到一段连续的列条带（`sbw=ceil(bw/sk)` 列），槽位内按行蛇形（奇数行反向）依次认领，相邻两点只差一个网格步（`stride` 像素），避免 FIFO 让槽位跨行跳（~50 px ⇒ `c0+k·d` 要 5–10 秒）。op 上带 `o.slot` 表示分块归属：`dispatch_ops` 的 sonar 分支只让它自己那个槽位接，槽位之间不抢；`COOLING` 重排队保留 `o.slot`，重连/槽位失效时丢弃并 `plan_release_s`。每槽 pending 上限 `sk*4`。2026-11-21 实测（97 槽位/target_90）：60s `ok[paint=2392 repair=215 sonar=252]`、sonar 认领覆盖 184 个不同 k（拆表前 81、未拆表 69 笔/60s）。`IKAPB_SC_LOG=1` 打印 `[sc] slot= k= idx=`。 **repair 同理**：`repair_worker` 只遍历 `build_target` 建好的 `g_known_idx`（目标像素的紧凑下标表，6150 个约 12s 一圈），**不再按画布下标 `0..N` 扫**——120x123 的目标在 1000x600 画布上只占右侧 50 列，按画布扫时 95% 的窗口是空白，一圈要 ~19.5 分钟，repair 看起来完全不动。pending 上限按 repair 槽位数放宽（`max(16, g_gslots[G_REPAIR])`），否则 49 个 repair 槽位最多只有 16 个有活。2026-11-21 实测（253 槽位/target.png）：单轮 100s `ok[paint=5935 repair=569 sonar=470]`；`--paint-loop 1` 120s `passes=1 ok[paint=6852 repair=114]`——绘制期间 repair 仍会空闲，因为每笔 `OK` 都自带该像素的新鲜声纳、`dmg=0`，而 pass 完成后 1s 就清 `g_done`，repair 没有复检窗口。 **NewSch1122 例外（2026-11-22）**：`--scheduler newsch1122` 的声纳已不再用列条带/`stride` 采样，而是用 `src/scheduler/sonar_tiling.cpp` 把菱形声纳密铺到 bbox（π=(R+1)+Ri 的格，N=2R²+2R+1），每槽按块负责连续中心、块内蛇形；中心必须落在 `known` 像素上，漏覆盖的 known 像素用自身中心补射。Classic 行为未变，仍是本条描述的条带扫描。
+
+5. **NewSch1122 repair 匀配（2026-11-22）**：`repair_loop` 把末尾 16 个 repair 槽当自由槽，仍按原来的 damaged/stale 全局窗口扫描；其余 repair 槽按 `partition_sonar_centers` 绑定声纳中心（槽少时连续分块，槽多时多个槽共享同一中心），每轮主动重画自己负责的中心。绑定 op 带 `affinity`，`step` 只让该槽接；自由 op 也在自由槽间轮转 affinity。**`Plan::claim` 对 `done_` 像素返回 false，repair 必须用新增的 `Plan::claim_repair`（只查 `enq_`）**，否则修复永远入不了队。Classic 仍用旧 claim，本处行为只在 NewSch1122 生效。
+
+6. **NewSch1122 paint 矩形分块（2026-11-22）**：paint 不再全局行优先扫画布，而是把目标 bbox 划成 `kx*ky` 个近似方形矩形（`paint_loop` 里的 `choose_paint_grid`/`build_paint_blocks`），每块交给一个 paint slot，块内逐行蛇形（奇数行反向），op 带 `affinity=槽 id`；块号 `block=by*kx+bx` 行优先，块→槽由 `paint_slot_for_block` 决定（`blocks<=slots` 一块一槽，否则每槽一段连续块号）。`step` 的 Paint 分支只让该槽接，并按队列顺序取（FIFO），保持相邻两笔只差一个像素。Paint/Sonar 未派发的 op 重排队时 `due` 保持 0，不能用 `now+20ms`，否则新 op 的 due=0 会插到重排 op 前面，蛇形顺序被打乱。`--paint-loop` 重刷时 `plan_.reset()` + 所有块 cursor 归零，每个槽仍只重画自己的块。捆绑变化触发 `drop_paint_queue()` 并按新槽位重建分块。**已知上/下分批现象**：`paint_loop` 每波从 block 0 重新扫描且 `round_cap`（默认 256）截断，`blocks>round_cap` 时每波只服务编号最小的前缀块（最上面几行），下排要等上排画完；`blocks<=round_cap` 时仍有行优先入队顺序。设 `IKAPB_PAINT_LOG=1` 会打印 grid/每块矩形/每槽首末像素/每次入队/每轮计数，并自动打印上述截断警告。
 
 **冷却结果必须重试同一像素**：`apply_tick` 收到 `COOLING`（st=1）时，不能丢弃 op 并释放 `g_enq`；要保留 op、`due = now + value + 20ms` 重新入队。丢掉的后果是生产者立刻换一个（更远的）像素重新认领，而客户端并不知道画笔真实位置（`p_has=false` 时 d 按 0 估），整条连接会在「发送→冷却→丢弃→重认领」上空转：2026-11-21 实测修复前 20px 图 240s 只有 715 笔 OK（冷却日志每 50 条打 1 条，共 411 行 ≈ 2 万次冷却），修复后 70s 就有 581 笔 OK、队列从 2000+ 降到 23。
 
@@ -199,6 +209,11 @@ make test
 ./testfiles/fake_transport_test
 ./testfiles/classic_target_test
 ./testfiles/classic_scheduler_test
+./testfiles/new_sch1122_test
+./testfiles/new_sch1122_sonar_test
+./testfiles/new_sch1122_paint_test
+./testfiles/new_sch1122_repair_test
+./testfiles/sonar_tiling_test
 ./testfiles/cli_test
 ./testfiles/alternate_scheduler_test
 

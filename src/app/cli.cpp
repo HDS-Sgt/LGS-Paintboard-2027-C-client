@@ -70,10 +70,21 @@ bool parse_token(const std::string& text, Token& out) {
   return true;
 }
 
+bool token_seen(const Config& config, const Token& token) {
+  for (const TokenEntry& entry : config.tokens)
+    if (entry.token == token)
+      return true;
+  return false;
+}
+
 bool add_token(Config& config, Group group, const char* text) {
   Token token{};
   if (!parse_token(text, token))
     return false;
+  // 同一个 token 只能占一个槽位：重复 token 会让服务器把先绑的槽位判 lost，
+  // 客户端又立刻重绑，形成永不 settle 的绑定风暴。重复项直接忽略。
+  if (token_seen(config, token))
+    return true;
   config.tokens.push_back(TokenEntry{group, token, false});
   return true;
 }
@@ -111,7 +122,7 @@ std::size_t load_token_file(Config& config, const std::string& path) {
         break;
       const std::string value = text.substr(q1 + 1, q2 - q1 - 1);
       Token token{};
-      if (parse_token(value, token)) {
+      if (parse_token(value, token) && !token_seen(config, token)) {
         config.tokens.push_back(TokenEntry{group, token, false});
         ++added;
       }
@@ -124,6 +135,22 @@ std::size_t load_token_file(Config& config, const std::string& path) {
 bool file_readable(const std::string& path) {
   std::ifstream in(path);
   return static_cast<bool>(in);
+}
+
+bool parse_scheduler(const char* text, SchedulerKind& out) {
+  std::string name(text);
+  for (char& c : name)
+    c = static_cast<char>(std::tolower(static_cast<unsigned char>(c)));
+  if (name == "classic") {
+    out = SchedulerKind::Classic;
+    return true;
+  }
+  if (name == "newsch1122" || name == "new_sch1122" ||
+      name == "new-sch1122") {
+    out = SchedulerKind::NewSch1122;
+    return true;
+  }
+  return false;
 }
 
 } // namespace
@@ -149,6 +176,7 @@ void print_usage(const char* program) {
   std::puts("  --sonar-stride N                 声纳采样步长（0=自动）");
   std::puts("  --round-cap N / --queue-cap N    生产/队列上限");
   std::puts("  --observe                        同时跑 public=1 观察连接");
+  std::puts("  --scheduler <name>               调度器：classic（默认）/ newsch1122");
   std::puts("  --sonar-out <file.ppm>           退出时导出声纳表");
   std::puts("  --board-out <file.ppm>           退出时导出公共画面");
 }
@@ -240,6 +268,13 @@ CliResult parse_cli(int argc, char** argv) {
       config.daemon = true;
     } else if (!std::strcmp(arg, "--observe")) {
       config.observe = true;
+    } else if (!std::strcmp(arg, "--scheduler")) {
+      const char* value = need(i, arg);
+      if (!value) return result;
+      if (!parse_scheduler(value, config.scheduler)) {
+        result.error = std::string("unknown scheduler: ") + value;
+        return result;
+      }
     } else if (!std::strcmp(arg, "--exec-ms")) {
       const char* value = need(i, arg);
       if (!value) return result;

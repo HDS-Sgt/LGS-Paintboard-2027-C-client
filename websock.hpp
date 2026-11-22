@@ -13,6 +13,9 @@
 #include <netdb.h>
 #include <unistd.h>
 #include <poll.h>
+#include <fcntl.h>
+#include <cerrno>
+#include <arpa/inet.h>
 
 #include "common_head.hpp"
 
@@ -42,6 +45,9 @@ struct tcSocket {
    // TLS + HTTP Upgrade 阶段网络可能很慢（到 pb.ika.zip 实测 3~10s），
    // 单独给一个更宽的超时，握手完成后再换回上面的读写超时。
    static constexpr int CONNECT_TIMEOUT_SEC = 30;
+   // 纯 TCP connect 的超时：对端不可达时内核要重传 SYN 约 2 分钟，
+   // 没有这个超时 main 会长时间 0 输出、看不到任何错误。
+   static constexpr int TCP_CONNECT_TIMEOUT_SEC = 8;
 
    static constexpr int MAX_WANT_RETRY = 3;
 
@@ -52,34 +58,172 @@ struct tcSocket {
       stream dat;
    };
 
-   // ---------- TCP ----------
+   // ---------- DNS ----------
+   // 校园网/教育网的 DNS 经常抽风：getaddrinfo 返回 EAI_AGAIN（“Temporary
+   // failure in name resolution”），而重连循环每次都要重新解析，一次失败
+   // 就整轮跑不起来。这里做三件事：
+   //   1. 缓存解析结果（默认 600 秒），重连不再反复查 DNS；
+   //   2. 临时失败按 0.1/0.2/0.4 秒退避重试 4 次；
+   //   3. 彻底失败时退回上次成功的地址，DNS 全挂也能继续连。
+   // IKAPB_DNS_FAMILY=4/6 可强制只解析 IPv4/IPv6（校园网 IPv6 DNS 坏时有用）。
+   struct addr_t {
+      sockaddr_storage sa;
+      socklen_t len;
+      $d family, socktype, proto;
+   };
 
-   fn tcpcot(const _Str &host, const _Str port) {
+   static inline std::mutex dns_mu;
+   static inline std::unordered_map<_Str, std::pair<u$q, vector<addr_t>>> dns_cache;
+
+   static u$q dns_now() {
+      ret (u$q)std::chrono::duration_cast<std::chrono::seconds>(
+         std::chrono::steady_clock::now().time_since_epoch()).count();
+   }
+
+   static $d dns_family() {
+      const char *s = getenv("IKAPB_DNS_FAMILY");
+      if(s == nullptr) ret AF_UNSPEC;
+      if(s[0] == '4') ret AF_INET;
+      if(s[0] == '6') ret AF_INET6;
+      ret AF_UNSPEC;
+   }
+
+   static vector<addr_t> dns_resolve(const _Str &host, const _Str &port,
+                                    bool allow_pin = true) {
+      const _Str key = host + ":" + port;
+      const u$q now = dns_now();
+      const u$q TTL = 600;
+      {
+         std::lock_guard<std::mutex> lk(dns_mu);
+         auto it = dns_cache.find(key);
+         if(it != dns_cache.end() && it->second.first + TTL > now)
+            ret it->second.second;
+      }
+
+      // 校园网 IPv4 到 Cloudflare 被阻断、系统 DNS 又不返回 AAAA 时，
+      // 可用 IKAPB_HOST_IP 直接钉地址（逗号分隔，v4/v6 都行），
+      // TLS 的 SNI 与证书校验仍然用 host，不受影响。
+      // 代理主机必须走真实 DNS：否则 IKAPB_HOST_IP 会把 127.0.0.1:7890
+      // 解析成绘版服务器地址，表现为连本地代理也 TCP connect failed。
+      if(allow_pin)
+      if(const char *ips = getenv("IKAPB_HOST_IP"); ips != nullptr && ips[0] != 0) {
+         vector<addr_t> out;
+         _Str list(ips);
+         size_t beg = 0;
+         while(beg < list.size()) {
+            size_t end = list.find(',', beg);
+            if(end == _Str::npos) end = list.size();
+            _Str one = list.substr(beg, end - beg);
+            while(!one.empty() && (one.front() == ' ' || one.front() == '\t')) one.erase(one.begin());
+            while(!one.empty() && (one.back() == ' ' || one.back() == '\t')) one.pop_back();
+
+            addr_t a{};
+            if(inet_pton(AF_INET, one.c_str(), &((sockaddr_in *)&a.sa)->sin_addr) == 1) {
+               a.sa.ss_family = AF_INET;
+               ((sockaddr_in *)&a.sa)->sin_family = AF_INET;
+               ((sockaddr_in *)&a.sa)->sin_port = htons((u$w)atoi(port.c_str()));
+               a.len = sizeof(sockaddr_in);
+               a.family = AF_INET;
+               a.socktype = SOCK_STREAM;
+               out.push_back(a);
+            } else if(inet_pton(AF_INET6, one.c_str(), &((sockaddr_in6 *)&a.sa)->sin6_addr) == 1) {
+               a.sa.ss_family = AF_INET6;
+               ((sockaddr_in6 *)&a.sa)->sin6_family = AF_INET6;
+               ((sockaddr_in6 *)&a.sa)->sin6_port = htons((u$w)atoi(port.c_str()));
+               a.len = sizeof(sockaddr_in6);
+               a.family = AF_INET6;
+               a.socktype = SOCK_STREAM;
+               out.push_back(a);
+            }
+            beg = end + 1;
+         }
+         if(!out.empty()) ret out;
+      }
+
       addrinfo hints{};
-      hints.ai_family = AF_UNSPEC;      // v4 v6 都行
-      hints.ai_socktype = SOCK_STREAM;  // TCP
+      hints.ai_family = dns_family();
+      hints.ai_socktype = SOCK_STREAM;
 
       addrinfo *lst = nullptr;
-      $d err = getaddrinfo(host.c_str(), port.c_str(), &hints, &lst);
-      if(err != 0)
-         throw runtime_error(gai_strerror(err));
+      $d err = 0;
+      for($d att = 0; att < 4; att ++) {
+         err = getaddrinfo(host.c_str(), port.c_str(), &hints, &lst);
+         if(err == 0) break;
+         // 只有“临时失败”值得重试；名字不存在/参数错误立刻报错
+         if(err != EAI_AGAIN && err != EAI_FAIL) break;
+         usleep(100000 << att);   // 0.1s / 0.2s / 0.4s
+      }
 
-      // 逐个候选地址试，第一个连上的留下
+      if(err != 0) {
+         std::lock_guard<std::mutex> lk(dns_mu);
+         auto it = dns_cache.find(key);
+         if(it != dns_cache.end())
+            ret it->second.second;   // 退回 stale IP
+         throw runtime_error(_Str("DNS resolve failed: ") + gai_strerror(err));
+      }
+
+      vector<addr_t> out;
       for(addrinfo *ptr = lst; ptr != nullptr; ptr = ptr->ai_next) {
-         $d tmp = socket(ptr->ai_family, ptr->ai_socktype, ptr->ai_protocol);
+         addr_t a{};
+         memcpy(&a.sa, ptr->ai_addr, ptr->ai_addrlen);
+         a.len = ptr->ai_addrlen;
+         a.family = ptr->ai_family;
+         a.socktype = ptr->ai_socktype;
+         a.proto = ptr->ai_protocol;
+         out.push_back(a);
+      }
+      freeaddrinfo(lst);
+
+      {
+         std::lock_guard<std::mutex> lk(dns_mu);
+         dns_cache[key] = {now, out};
+      }
+      ret out;
+   }
+
+   // ---------- TCP ----------
+
+   fn tcpcot(const _Str &host, const _Str port, bool allow_pin = true) {
+      if(getenv("IKAPB_NET_LOG"))
+         fprintf(stderr, "[net] TCP connect %s:%s\n", host.c_str(), port.c_str());
+      // 解析走缓存/重试；再逐个候选地址试，第一个连上的留下
+      vector<addr_t> lst = dns_resolve(host, port, allow_pin);
+
+      for(auto &ptr : lst) {
+         $d tmp = socket(ptr.family, ptr.socktype, ptr.proto);
          if(tmp < 0) continue;
 
+         // 非阻塞 connect + poll：否则对端丢 SYN 时要等内核重传 2 分钟
+         $d flags = fcntl(tmp, F_GETFL, 0);
+         fcntl(tmp, F_SETFL, flags | O_NONBLOCK);
+
          // 必须写 ::connect：成员名 connect 会隐藏全局函数
-         if(::connect(tmp, ptr->ai_addr, ptr->ai_addrlen) == 0) {
+         $d rc = ::connect(tmp, (const sockaddr *)&ptr.sa, ptr.len);
+         if(rc != 0 && errno == EINPROGRESS) {
+            pollfd pf{tmp, POLLOUT, 0};
+            rc = poll(&pf, 1, TCP_CONNECT_TIMEOUT_SEC * 1000);
+            if(rc > 0) {
+               $d so_err = 0;
+               socklen_t so_len = sizeof(so_err);
+               getsockopt(tmp, SOL_SOCKET, SO_ERROR, &so_err, &so_len);
+               rc = (so_err == 0) ? 0 : -1;
+            } else {
+               rc = -1;   // 超时或 poll 出错
+            }
+         }
+
+         // 恢复阻塞模式（后续 TLS 依赖阻塞 socket + SO_RCVTIMEO）
+         fcntl(tmp, F_SETFL, flags);
+
+         if(rc == 0) {
             file = tmp;
             break;
          }
          close(tmp);
       }
-      freeaddrinfo(lst);
 
       if(file < 0)
-         throw runtime_error("TCP connect failed");
+         throw runtime_error("TCP connect failed: " + host + ":" + port);
    }
 
    // 超时必须夹在 TCP 和 TLS 之间：握手本身也走 socket，
@@ -189,7 +333,9 @@ struct tcSocket {
          if(e == SSL_ERROR_ZERO_RETURN)
             throw runtime_error("TLS closed by peer");
 
-         throw runtime_error("SSL_read failed");
+         const int saved_errno = errno;
+         throw runtime_error("SSL_read failed (ssl_err=" + std::to_string(e) +
+                             ", errno=" + std::to_string(saved_errno) + ")");
       }
    }
 
@@ -433,7 +579,9 @@ struct tcSocket {
       $d e = SSL_get_error(ssl, n);
       if(e == SSL_ERROR_WANT_READ || e == SSL_ERROR_WANT_WRITE) ret;
       if(e == SSL_ERROR_ZERO_RETURN) throw runtime_error("TLS closed by peer");
-      throw runtime_error("SSL_read failed");
+      const int saved_errno = errno;
+      throw runtime_error("SSL_read failed (ssl_err=" + std::to_string(e) +
+                          ", errno=" + std::to_string(saved_errno) + ")");
    }
 
    $d try_recvbin(stream &out) {
@@ -579,7 +727,7 @@ struct tcSocket {
       _Str ph, pp;
       if(parseproxy(envproxy(), ph, pp)) {
          // 先连代理，再用 CONNECT 打开到目标的字节流；TLS 仍是对目标做的
-         tcpcot(ph, pp);
+         tcpcot(ph, pp, false);
          set_timeouts(CONNECT_TIMEOUT_SEC, CONNECT_TIMEOUT_SEC);
          proxyhsh(host, port);
       } else {

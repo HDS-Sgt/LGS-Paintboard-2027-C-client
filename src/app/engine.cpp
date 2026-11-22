@@ -5,9 +5,11 @@
 #include "net/transport.hpp"
 #include "net/work_connection.hpp"
 #include "scheduler/classic_scheduler.hpp"
+#include "scheduler/new_sch1122.hpp"
 
 #include <chrono>
 #include <cstdio>
+#include <cstdlib>
 #include <exception>
 #include <string>
 #include <thread>
@@ -105,6 +107,12 @@ int Engine::run_work() {
   bool connected = false;
   int failures = 0;
 
+  const char* env_proxy = std::getenv("HTTPS_PROXY");
+  if (env_proxy == nullptr) env_proxy = std::getenv("https_proxy");
+  const char* proxy = config_.proxy.empty() ? env_proxy : config_.proxy.c_str();
+  log_.logf("[work] proxy={}\n", proxy == nullptr ? "(none)" : proxy);
+  const bool bind_wait = std::getenv("IKAPB_BIND_WAIT") != nullptr;
+
   while (!stop_.load() && !status_.stop.load()) {
     try {
       if (!connected) {
@@ -129,14 +137,23 @@ int Engine::run_work() {
         }
 
         if (!config_.dry_run && !prepared) {
-          scheduler_ = std::make_unique<ClassicScheduler>(SchedulerDeps{
-              queue_, painter_ptrs_, board_, config_, status_, log_});
+          const SchedulerDeps deps{queue_, painter_ptrs_, board_, config_,
+                                   status_, log_};
+          const bool new_sch = config_.scheduler == SchedulerKind::NewSch1122;
+          if (new_sch)
+            scheduler_ = std::make_unique<NewSch1122>(deps);
+          else
+            scheduler_ = std::make_unique<ClassicScheduler>(deps);
+          log_.logf("[main] scheduler={}\n",
+                    new_sch ? "new_sch1122" : "classic");
           scheduler_->prepare();
           prepared = true;
         }
 
         work_->request_all_binds();
         work_->flush();
+        log_.logf("[work] bind requests sent: {} token(s), awaiting results\n",
+                  painter_ptrs_.size());
         connected = true;
         failures = 0;
       }
@@ -147,10 +164,19 @@ int Engine::run_work() {
           board_.apply_sonar(event->sonar);
           if (scheduler_)
             scheduler_->on_tick(*event);
-          if (config_.dry_run) {
+          if (config_.dry_run && !bind_wait) {
             log_.logf("[work] dry-run: first TICK received\n");
             return 0;
           }
+        }
+
+        if (config_.dry_run && bind_wait && work_->binds_settled()) {
+          std::size_t bound = 0;
+          for (const IPainter* painter : painter_ptrs_)
+            if (painter && painter->view().bound) ++bound;
+          log_.logf("[work] bind wait done: {}/{} bound, {} failed\n", bound,
+                    painter_ptrs_.size(), work_->bind_fail_count());
+          return 0;
         }
 
         if (scheduler_ && !started && work_->binds_settled()) {

@@ -29,7 +29,7 @@ g++ -std=c++20 -O2 -Wall -Wextra -I. -I.deps/zstd-dev/usr/include \
     /lib/x86_64-linux-gnu/libzstd.so.1
 ```
 
-`replay_main`、`tick_selftest`、`board_test`、`queue_test`、`fake_transport_test`、`classic_target_test`、`classic_scheduler_test`、`cli_test` 都走 `make test`，不要再用旧的单文件 `#include "../main.cpp"` 方式编译。
+`replay_main`、`tick_selftest`、`board_test`、`queue_test`、`fake_transport_test`、`classic_target_test`、`classic_scheduler_test`、`new_sch1122_test`、`new_sch1122_paint_test`、`new_sch1122_sonar_test`、`new_sch1122_repair_test`、`sonar_tiling_test`、`cli_test` 都走 `make test`，不要再用旧的单文件 `#include "../main.cpp"` 方式编译。
 
 ## 文件清单
 
@@ -51,6 +51,11 @@ g++ -std=c++20 -O2 -Wall -Wextra -I. -I.deps/zstd-dev/usr/include \
 | `fake_transport_test.cpp` | `TokenPainter + WorkConnection`：绑定、绑定失败 settled 且不重绑、OK、COOLING、结果不足、断线重连、发送失败保留 outbox |
 | `classic_target_test.cpp` | `TargetBuilder`/`build_target` 与 `Plan` 的 known_idx/bbox/claim/done |
 | `classic_scheduler_test.cpp` | `ClassicScheduler` 的 step 派发、OK/Cooling/Error、断线重排、完成语义，以及 `ClassicResultHandler` 直测 |
+| `new_sch1122_test.cpp` | 用宏复用 `classic_scheduler_test.cpp` 的 8 个场景，跑 `NewSch1122`（step/OK/Cooling/断线路径与 Classic 一致；声纳密铺另有专门测试） |
+| `sonar_tiling_test.cpp` | 声纳密铺几何与 repair 中心分区：R=0/1/2/3、槽位数 1/7/29、实心/棋盘 known；断言中心必 known、每中心唯一归属、known 全覆盖、内部像素恰好一次；`partition_sonar_centers` 在 B>=C/B<C 下的覆盖与块大小 |
+| `new_sch1122_paint_test.cpp` | 调度层集成：4 个 paint 槽把 12x10 目标切成 2x2 矩形，块内逐行蛇形；op affinity 只指向 owning slot；`--paint-loop` 重刷仍只在本块内 |
+| `new_sch1122_sonar_test.cpp` | 调度层集成：密铺中心 → `sonar_loop` 按块写 affinity → `step` 只派给 owning slot，跨槽位不重复 |
+| `new_sch1122_repair_test.cpp` | 调度层集成：末尾 16 个自由 repair 走 damaged 扫描，其余绑定声纳中心；`claim_repair` 允许重画已 done 像素，绑定槽只接自己中心的 op |
 | `cli_test.cpp` | 新 CLI 的参数解析 |
 | `alternate_scheduler_test.cpp` | `RoundRobinScheduler`：证明 `IScheduler` 可替换，且不改 `PaintQueue`/`IPainter` 接口 |
 | `tick_probe.cpp` / `tick_probe2.cpp` / `tick_probe3.cpp` | 发 BATCH 观察 TICK（3 为最终可用版） |

@@ -61,6 +61,14 @@ bool Plan::claim(std::uint32_t idx) {
   return true;
 }
 
+bool Plan::claim_repair(std::uint32_t idx) {
+  std::lock_guard<std::mutex> lock(mu_);
+  if (idx >= enq_.size() || enq_[idx])
+    return false;
+  enq_[idx] = 1;
+  return true;
+}
+
 bool Plan::claim_sonar(std::uint32_t idx) {
   std::lock_guard<std::mutex> lock(mu_);
   if (idx >= enq_sonar_.size() || enq_sonar_[idx])

@@ -54,6 +54,8 @@ ___main {
   `handsh`（HTTP Upgrade）。若设置了 `HTTPS_PROXY` / `https_proxy` / `ALL_PROXY`
   （`http://host:port` 形式），会先连代理并做 HTTP `CONNECT`，再在同一个 fd 上做 TLS；
   不设环境变量时行为与直连完全一致。
+- `IKAPB_HOST_IP` 只对**目标主机**生效，不会劫持代理主机解析；否则 `127.0.0.1:7890`
+  会被钉成绘版服务器地址，表现为连本地代理也 `TCP connect failed`。
 - `recvbin()` 返回 `std::optional<stream>`：`nullopt` 表示对端发了 Close（已经回过 Close）；
   抛异常表示链路出错。两种情况都该重连。
 - `try_recvbin()` 是非阻塞版本：只切已经完整到达的帧，没凑齐返回 0，**不会卡在只收到 Ping

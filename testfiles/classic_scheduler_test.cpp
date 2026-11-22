@@ -4,7 +4,20 @@
 #include "paintboard/painter.hpp"
 #include "paintboard/scheduler.hpp"
 #include "scheduler/classic_result_handler.hpp"
-#include "scheduler/classic_scheduler.hpp"
+
+// 同一套场景被 classic_scheduler_test 与 new_sch1122_test 复用：
+// 后者通过 -DPB_SCHED_* 换掉被测调度器，见 Makefile 的 test-new-scheduler。
+#ifndef PB_SCHED_HEADER
+#define PB_SCHED_HEADER "scheduler/classic_scheduler.hpp"
+#endif
+#ifndef PB_SCHED_CLASS
+#define PB_SCHED_CLASS ClassicScheduler
+#endif
+#ifndef PB_SCHED_NAME
+#define PB_SCHED_NAME "classic_scheduler_test"
+#endif
+
+#include PB_SCHED_HEADER
 
 #include <chrono>
 #include <cstdint>
@@ -90,7 +103,7 @@ struct Harness {
   PaintQueue queue;
   std::vector<std::unique_ptr<FakePainter>> painters;
   std::vector<IPainter*> raw;
-  std::unique_ptr<ClassicScheduler> scheduler;
+  std::unique_ptr<PB_SCHED_CLASS> scheduler;
 
   FakePainter& painter(std::size_t i) { return *painters[i]; }
 };
@@ -119,7 +132,7 @@ std::unique_ptr<Harness> make_harness(Group group, std::vector<Draw> draws) {
   rules.max_slots = 16;
   h->board.apply_rules(rules);
 
-  h->scheduler = std::make_unique<ClassicScheduler>(
+  h->scheduler = std::make_unique<PB_SCHED_CLASS>(
       SchedulerDeps{h->queue, h->raw, h->board, h->config, h->status, h->log});
   h->scheduler->prepare();
   return h;
@@ -319,7 +332,7 @@ int main() {
   test_on_disconnect_restores_pending();
 
   if (failures == 0) {
-    std::cout << "classic_scheduler_test OK (8 scenarios)\n";
+    std::cout << PB_SCHED_NAME << " OK (8 scenarios)\n";
     return 0;
   }
   std::cerr << failures << " failure(s)\n";
