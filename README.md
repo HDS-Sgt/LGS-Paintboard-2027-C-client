@@ -2,6 +2,8 @@
 
 对接 **2027 协议**的 C++20 像素画板客户端：一边维护公共画面（`RULES` / `SNAPSHOT` / `PUBLIC`），一边用多组 Paint Token 通过 `BATCH` 落笔、读取 `TICK` 里的实时声纳并自动补画。
 
+> 第一次接手先读 [`docs/ONBOARDING.md`](docs/ONBOARDING.md)：10 分钟走完构建、分层、一个像素的数据流和“改哪里跑什么”。
+
 - 公共流：连接 `wss://<host>/ws?public=1`，维护当前画面与两层历史（`L1`/`L2`），断线用 `since` 续传。
 - 工作流：连接 `wss://<host>/ws?public=0`，绑定槽位、发送 `BATCH`、解析 `TICK`。
 - 分层核心：`Board`（画面） / `PaintQueue`（全局队列） / `TokenPainter`（单 token 异步句柄） / `WorkConnection`（一条工作连接） / `IScheduler`（可替换调度策略） / `Engine`（组装与生命周期），全部在 `include/paintboard/` 与 `src/`。
@@ -78,7 +80,7 @@ IKAPB_TOKEN=<uuid> ./main --image target_40.png
 
 ## 离线回归
 
-`make test` 会构建全部测试二进制；逐个运行：
+`make test` 会构建 Makefile 里的全部测试二进制；逐个运行：
 
 ```bash
 make test
@@ -88,7 +90,9 @@ make test
 ./testfiles/queue_test
 ./testfiles/fake_transport_test
 ./testfiles/classic_target_test
+./testfiles/classic_scheduler_test
 ./testfiles/cli_test
+./testfiles/alternate_scheduler_test
 
 # 公开画面基准：期望 since=24144972 且与 ref_t.ppm 逐字节一致
 ./testfiles/replay_main .protocol/t_snap.zst .protocol/t_delta.zst /tmp/replay.ppm
@@ -115,6 +119,7 @@ cmp /tmp/board.ppm .protocol/public_board.ppm
 ## 目录结构
 
 ```
+docs/ONBOARDING.md   10 分钟接手页：分层、数据流、旧名映射、改哪里跑什么
 include/paintboard/  公共接口：types/config/board/paint_queue/painter/scheduler/engine
 src/                 实现：base/protocol/board/paint/net/scheduler/app
 legacy/main_legacy.cpp  旧单文件客户端，仅作历史参考，不参与构建

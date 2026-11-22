@@ -1,6 +1,6 @@
 # AGENTS.md — ikapb 2027 画板客户端
 
-本文件是给 agent 协作用的入口：**先读这里，再读三份专题文档**。只讲长期有效的约定与结构，变更流水看 git/mtime，不要往这里追加流水账。
+本文件是给 agent 协作用的入口：**先读这里，再读三份专题文档**。第一次接手先读 `docs/ONBOARDING.md`（10 分钟路径、旧名映射、改哪里跑什么），再回到本文件查不变量。只讲长期有效的约定与结构，变更流水看 git/mtime，不要往这里追加流水账。
 
 ## 0. 版本与权威来源（最重要）
 
@@ -83,6 +83,7 @@ wss://<host>/ws?public=1&since=<已持有的公共版本号>
 ## 3. 本仓库现状与文件地图
 
 ```
+docs/ONBOARDING.md  10 分钟接手页（先读这个）
 include/paintboard/  公共接口（无 common_head.hpp 宏依赖）
   types.hpp          SlotId/Tick/Token/Group/PaintOp/TickEvent/Rules...
   config.hpp         Config/RuntimeStatus/Logger/ServerClock
@@ -118,7 +119,7 @@ testfiles/          探针与对拍程序；详见 testfiles/README.md
   replay_main.cpp   离线回放：Board + 协议层，快照/增量 → PPM
   tick_selftest.cpp BATCH/TICK/声纳/颜色自检
   board_test/queue_test/fake_transport_test/classic_target_test/
-  classic_scheduler_test/cli_test
+  classic_scheduler_test/cli_test/alternate_scheduler_test
   pub_decode/pub_apply/web_test 等探针
 pull_pub.sh         走 7890 代理拉公共画面（HTTP），失败回退直连
 snap_retry.sh       快照重试（HTTP，成功后出 PPM/PNG）
@@ -142,6 +143,8 @@ snap_retry.sh       快照重试（HTTP，成功后出 PPM/PNG）
 - **冷却/断线重排用 `restore_consumed`**：发送时已经 `consume`，不能再用“只插回、不动计数”的 `requeue`；断线后还要 `queue.recount()` 按真实 multiset 校正。`done()` 只在纯 paint 组、非 `--daemon`/`--paint-loop` 时按 `target_complete` 收尾；带 repair/sonar 的会话继续值守，Engine 另要求 `pending_paint_count()==0`。
 
 ### 调度器不变量（2026-11-20 踩坑后确认）
+
+> 下面这段是**旧单文件时代**的结论，保留是因为坑本身仍然成立；名字已经换了。读之前先按 [`docs/ONBOARDING.md`](docs/ONBOARDING.md) §4 的“旧名 → 新名映射”对照：`g_enq`→`Plan::claim`、`g_enq_s`→`Plan::claim_sonar`、`g_done`→`Plan::done`、`g_known_idx`→`Target::known_idx`、`q_take_due`→`PaintQueue::take_due`、`dispatch_ops`→`ClassicScheduler::step`、`apply_tick`→`ClassicScheduler::on_tick`。
 
 **症状**：`--image ... --paint-loop 1 --daemon` 跑起来后，paint token “缩在某个位置不动”，退出汇总 `target_done = need − 4` 且 `enq_stuck > 0`。当时证据在 `.protocol/sched_repro.log`、`.protocol/sched_diag.log`。这**不是**网络、冷却或 token 问题，先查调度器。
 
@@ -197,6 +200,7 @@ make test
 ./testfiles/classic_target_test
 ./testfiles/classic_scheduler_test
 ./testfiles/cli_test
+./testfiles/alternate_scheduler_test
 
 # 公开画面基准：期望 since=24144972 且 PPM 逐字节一致
 ./testfiles/replay_main .protocol/t_snap.zst .protocol/t_delta.zst /tmp/replay.ppm
