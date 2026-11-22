@@ -1,4 +1,5 @@
 #include "paintboard/scheduler.hpp"
+#include "scheduler/target_builder.hpp"
 
 #include <cassert>
 #include <cstdint>
@@ -80,12 +81,25 @@ void test_draw_target() {
   assert(target_complete(target, plan));
 }
 
+void test_target_builder_direct() {
+  const Rules rules = make_rules();
+  Config config;
+  config.draws.push_back(Draw{2, 1, 0xFF112233u});
+
+  const Target target = TargetBuilder{}.build(config, rules);
+  assert(target.built);
+  assert(target.known_idx.size() == 1 && target.known_idx[0] == 6);
+  assert(target.pix[6] == 0xFF112233u);
+  assert(target.bb_x0 == 2 && target.bb_y0 == 1);
+}
+
 } // namespace
 
 int main() {
   test_plan();
   test_empty_target();
   test_draw_target();
+  test_target_builder_direct();
   std::puts("classic_target_test OK");
   return 0;
 }

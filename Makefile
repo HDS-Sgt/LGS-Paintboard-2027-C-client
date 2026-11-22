@@ -7,7 +7,8 @@ BOARD_SRCS = src/board/board.cpp $(PROTO_SRCS)
 QUEUE_SRCS = src/paint/queue.cpp
 PAINTER_SRCS = src/paint/token_painter.cpp
 WORK_SRCS = src/net/work_connection.cpp $(PAINTER_SRCS) $(PROTO_SRCS)
-CLASSIC_SRCS = src/scheduler/classic_scheduler.cpp $(QUEUE_SRCS) $(BOARD_SRCS)
+CLASSIC_SRCS = src/scheduler/classic_scheduler.cpp src/scheduler/target_builder.cpp \
+	src/scheduler/result_handler.cpp $(QUEUE_SRCS) $(BOARD_SRCS)
 APP_SRCS = src/app/cli.cpp src/app/engine.cpp src/app/main.cpp $(CLASSIC_SRCS) \
 	src/paint/token_painter.cpp src/net/transport.cpp src/net/public_client.cpp \
 	src/net/work_connection.cpp

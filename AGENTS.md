@@ -97,7 +97,9 @@ src/
   board/board.cpp
   paint/             queue.cpp/token_painter.cpp
   net/               transport.cpp/public_client.cpp/work_connection.cpp
-  scheduler/         classic_scheduler.cpp（ClassicScheduler 保持原策略）
+  scheduler/         classic_scheduler.cpp（策略/生产者）
+                     target_builder.cpp（目标图构建）
+                     result_handler.cpp（TICK/断线 → Plan/Queue 状态机）
   app/               cli.cpp/engine.cpp/main.cpp（新入口）
 legacy/main_legacy.cpp 旧单文件实现，仅作历史参考，不参与构建
 websock.hpp         TLS + HTTP Upgrade + RFC6455 帧（tcSocket：
@@ -105,7 +107,7 @@ websock.hpp         TLS + HTTP Upgrade + RFC6455 帧（tcSocket：
 zstdwrap.hpp        zstddec/zstdenc，强制“恰好一个 frame”
 common_head.hpp     旧宏板子（$d/u$d/_Str/rep/...；仅 legacy 与少量工具用）
 tokens.example.json token 配置模板；复制为 tokens.json 后填真实 token（已忽略）
-.deps/stb/          stb_image.h（classic_scheduler.cpp 相对路径包含，无需 -I）
+.deps/stb/          stb_image.h（target_builder.cpp 相对路径包含，无需 -I）
 .deps/zstd-dev/     zstd.h（无 root 解包）
 ikapb_protocol.md   2027 逐字节偏移表
 ikapb_impl_guide.md 2027 客户端实现手册（§12 旧单文件结构，§13 调度策略）
@@ -115,7 +117,8 @@ repo/ikapb/         上游仓库（2027 分支检出；本地克隆，不入库�
 testfiles/          探针与对拍程序；详见 testfiles/README.md
   replay_main.cpp   离线回放：Board + 协议层，快照/增量 → PPM
   tick_selftest.cpp BATCH/TICK/声纳/颜色自检
-  board_test/queue_test/fake_transport_test/classic_target_test/cli_test
+  board_test/queue_test/fake_transport_test/classic_target_test/
+  classic_scheduler_test/cli_test
   pub_decode/pub_apply/web_test 等探针
 pull_pub.sh         走 7890 代理拉公共画面（HTTP），失败回退直连
 snap_retry.sh       快照重试（HTTP，成功后出 PPM/PNG）
@@ -179,7 +182,7 @@ make            # 生成 ./main（src/app/main.cpp + 全部 src/）
 make test       # 构建全部测试二进制（不自动运行）
 ```
 - `zstd.h` 来自无 root 解包的 `.deps/zstd-dev/usr/include`（Makefile 已带 `-I`）；运行时链接系统 `libzstd.so.1`（dev 包装出来的 `.so` 软链可能不存在，别改成 `-lzstd` 后不检查）。
-- `stb_image.h` 已放在 `.deps/stb/`，由 `src/scheduler/classic_scheduler.cpp` 相对包含，**不需要额外 `-I`**。
+- `stb_image.h` 已放在 `.deps/stb/`，由 `src/scheduler/target_builder.cpp` 相对包含，**不需要额外 `-I`**。
 - 旧单文件实现已移到 `legacy/main_legacy.cpp`，不参与构建；需要对照历史行为时直接读它，不要把新代码改回去。
 
 ### 离线回归（不联网，改 `src/` 后必跑）
@@ -191,6 +194,7 @@ make test
 ./testfiles/queue_test
 ./testfiles/fake_transport_test
 ./testfiles/classic_target_test
+./testfiles/classic_scheduler_test
 ./testfiles/cli_test
 
 # 公开画面基准：期望 since=24144972 且 PPM 逐字节一致

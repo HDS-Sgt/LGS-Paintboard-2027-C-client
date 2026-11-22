@@ -2,6 +2,8 @@
 
 #include "paintboard/scheduler.hpp"
 
+#include "scheduler/classic_result_handler.hpp"
+
 #include <atomic>
 #include <cstddef>
 #include <cstdint>
@@ -39,6 +41,7 @@ class ClassicScheduler final : public IScheduler {
   SchedulerDeps deps_;
   Target target_;
   Plan plan_;
+  ClassicResultHandler results_;
   Tick c0_ = 0;
   Tick k_ = 0;
   std::uint32_t width_ = 0, height_ = 0;

@@ -3,6 +3,7 @@
 #include "paintboard/paint_queue.hpp"
 #include "paintboard/painter.hpp"
 #include "paintboard/scheduler.hpp"
+#include "scheduler/classic_result_handler.hpp"
 #include "scheduler/classic_scheduler.hpp"
 
 #include <chrono>
@@ -135,6 +136,75 @@ bool wait_for_queue(PaintQueue& queue, std::size_t want) {
   return false;
 }
 
+struct ResultFixture {
+  Target target;
+  Plan plan;
+  PaintQueue queue;
+  RuntimeStatus status;
+  ClassicResultHandler handler{target, plan, queue, status};
+  PaintOp op;
+
+  ResultFixture() {
+    target.built = true;
+    target.W = 4;
+    target.H = 3;
+    target.pix.assign(12, 0);
+    target.known.assign(12, 0);
+    target.known_idx.push_back(6);
+    target.known[6] = 1;
+    target.pix[6] = 0xFF112233u;
+
+    plan.alloc(12, 1);
+    (void)plan.claim(6);
+
+    op.idx = 6;
+    op.color = target.pix[6];
+    op.group = Group::Paint;
+  }
+
+  // 模拟“已发送”：先入队、取出、consume，队列计数归零。
+  void consume_op() {
+    queue.push(op);
+    std::vector<PaintOp> out;
+    queue.take_due(0, out);
+    for (const PaintOp& taken : out)
+      queue.consume(taken);
+  }
+};
+
+void test_result_handler_ok() {
+  ResultFixture f;
+  TickEvent event;
+  event.results.push_back(TickResult{f.op, PaintStatus::Ok, 0});
+  f.handler.on_tick(event);
+
+  check(f.plan.done(6), "handler OK marks target done");
+  check(f.status.painted.load() == 1, "handler OK counts painted");
+}
+
+void test_result_handler_cooling() {
+  ResultFixture f;
+  f.consume_op();
+  check(f.queue.size() == 0, "op consumed before cooling");
+
+  TickEvent event;
+  event.results.push_back(TickResult{f.op, PaintStatus::Cooling, 500});
+  f.handler.on_tick(event);
+
+  check(f.queue.size() == 1, "handler cooling requeues same op");
+  check(f.status.painted.load() == 0, "handler cooling not painted");
+}
+
+void test_result_handler_disconnect() {
+  ResultFixture f;
+  f.consume_op();
+  std::vector<PaintOp> pending{f.op};
+  f.handler.on_disconnect(pending);
+
+  check(f.queue.size() == 1, "handler disconnect restores pending");
+  check(f.queue.stats().total == 1, "handler disconnect recounts");
+}
+
 void test_step_dispatches_claimed_paint() {
   auto h = make_harness(Group::Paint, {Draw{2, 1, 0xFF112233u}});
   h->scheduler->on_all_bound();
@@ -239,6 +309,9 @@ void test_on_disconnect_restores_pending() {
 } // namespace
 
 int main() {
+  test_result_handler_ok();
+  test_result_handler_cooling();
+  test_result_handler_disconnect();
   test_step_dispatches_claimed_paint();
   test_on_tick_ok_marks_done_and_stops();
   test_on_tick_cooling_requeues_same_op();
@@ -246,7 +319,7 @@ int main() {
   test_on_disconnect_restores_pending();
 
   if (failures == 0) {
-    std::cout << "classic_scheduler_test OK (5 scenarios)\n";
+    std::cout << "classic_scheduler_test OK (8 scenarios)\n";
     return 0;
   }
   std::cerr << failures << " failure(s)\n";
