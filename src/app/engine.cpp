@@ -155,11 +155,21 @@ int Engine::run_work() {
 
         if (scheduler_ && !started && work_->binds_settled()) {
           std::size_t bound = 0;
-          for (const IPainter* painter : painter_ptrs_)
-            if (painter && painter->view().bound)
+          std::string failed_slots;
+          for (std::size_t i = 0; i < painter_ptrs_.size(); ++i) {
+            const IPainter* painter = painter_ptrs_[i];
+            if (painter && painter->view().bound) {
               ++bound;
+            } else if (failed_slots.size() < 400) {
+              if (!failed_slots.empty())
+                failed_slots += ' ';
+              failed_slots += std::to_string(i);
+            }
+          }
           log_.logf("[work] bind settled: {}/{} bound, {} failed\n", bound,
                     painter_ptrs_.size(), work_->bind_fail_count());
+          if (!failed_slots.empty())
+            log_.logf("[work] bind failed slots: {}\n", failed_slots);
           if (bound == 0) {
             log_.logf("[work] no token bound; aborting\n");
             status_.abort.store(true);
