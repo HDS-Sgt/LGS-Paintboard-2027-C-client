@@ -15,8 +15,10 @@ APP_SRCS = src/app/cli.cpp src/app/engine.cpp src/app/main.cpp $(CLASSIC_SRCS) \
 	src/scheduler/sonar_tiling.cpp src/scheduler/new_sch1122.cpp \
 	src/paint/token_painter.cpp src/net/transport.cpp src/net/public_client.cpp \
 	src/net/work_connection.cpp
+# 不含 main() 的应用层，供需要自己写 main 的集成测试复用。
+ENGINE_SRCS = $(filter-out src/app/main.cpp,$(APP_SRCS))
 
-.PHONY: all fix-mtime test test-protocol test-board test-replay test-net test-queue test-painter test-classic-target test-classic-scheduler test-new-scheduler test-new-paint test-new-sonar test-new-repair test-sonar-tiling test-cli test-alternate-scheduler clean
+.PHONY: all fix-mtime test test-fake-server test-protocol test-board test-replay test-net test-queue test-painter test-classic-target test-classic-scheduler test-new-scheduler test-new-paint test-new-sonar test-new-repair test-sonar-tiling test-cli test-alternate-scheduler clean
 
 # 跨设备同步可能把源文件的 mtime 带成“未来时间”，make 会误判为无需重编
 # （并打印“时钟错误”警告）。发现 make 不重新编译时先跑：make fix-mtime
@@ -127,9 +129,23 @@ testfiles/alternate_scheduler_test: testfiles/alternate_scheduler_test.cpp \
 
 HDRS := $(shell find include src -name '*.h' -o -name '*.hpp') websock.hpp common_head.hpp zstdwrap.hpp
 
+# v1 假服务端：真实 TLS/WS/zstd，只响应客户端；测试显式使用 NewSch1122。
+testfiles/fake_server_cert.pem testfiles/fake_server_key.pem:
+	openssl req -x509 -newkey rsa:2048 -nodes -days 3650 \
+		-keyout testfiles/fake_server_key.pem \
+		-out testfiles/fake_server_cert.pem \
+		-subj "/CN=127.0.0.1" \
+		-addext "subjectAltName=IP:127.0.0.1"
+
+testfiles/fake_server_test: testfiles/fake_server_test.cpp $(ENGINE_SRCS) $(HDRS)
+	$(CXX) $(CXXFLAGS) testfiles/fake_server_test.cpp $(ENGINE_SRCS) -o $@ $(LDLIBS)
+
+test-fake-server: testfiles/fake_server_test testfiles/fake_server_cert.pem testfiles/fake_server_key.pem
+	./testfiles/fake_server_test "$(CURDIR)/testfiles/fake_server_cert.pem" "$(CURDIR)/testfiles/fake_server_key.pem"
+
 main: $(APP_SRCS) $(HDRS)
 	$(CXX) $(CXXFLAGS) $(APP_SRCS) -o $@.tmp $(LDLIBS)
 	mv -f $@.tmp $@
 
 clean:
-	rm -f main main.tmp paintboard_new testfiles/protocol_test testfiles/tick_selftest testfiles/board_test testfiles/replay_main testfiles/queue_test testfiles/fake_transport_test testfiles/classic_target_test testfiles/classic_scheduler_test testfiles/new_sch1122_test testfiles/new_sch1122_sonar_test testfiles/new_sch1122_repair_test testfiles/new_sch1122_paint_test testfiles/sonar_tiling_test testfiles/cli_test testfiles/alternate_scheduler_test
+	rm -f main main.tmp paintboard_new testfiles/protocol_test testfiles/tick_selftest testfiles/board_test testfiles/replay_main testfiles/queue_test testfiles/fake_transport_test testfiles/classic_target_test testfiles/classic_scheduler_test testfiles/new_sch1122_test testfiles/new_sch1122_sonar_test testfiles/new_sch1122_repair_test testfiles/new_sch1122_paint_test testfiles/sonar_tiling_test testfiles/cli_test testfiles/alternate_scheduler_test testfiles/fake_server_test testfiles/fake_server_cert.pem testfiles/fake_server_key.pem

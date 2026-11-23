@@ -16,6 +16,14 @@
 make test
 ```
 
+本地假服务端 v1（真实 TLS/WS/zstd，只响应客户端，不注入竞争者；测试显式使用 NewSch1122）：
+
+```bash
+make test-fake-server
+```
+
+它会在需要时生成 `testfiles/fake_server_cert.pem` / `fake_server_key.pem`（自签、SAN=IP:127.0.0.1，已被 `.gitignore` 忽略）。
+
 只编译单个探针时：
 
 ```bash
@@ -49,6 +57,7 @@ g++ -std=c++20 -O2 -Wall -Wextra -I. -I.deps/zstd-dev/usr/include \
 | `board_test.cpp` | `Board` 的 RULES/SNAPSHOT/PUBLIC/声纳应用与 RGB 导出 |
 | `queue_test.cpp` | `PaintQueue` 计数语义（取出不减 / consume 才减 / requeue 不变） |
 | `fake_transport_test.cpp` | `TokenPainter + WorkConnection`：绑定、绑定失败 settled 且不重绑、OK、COOLING、结果不足、断线重连、发送失败保留 outbox |
+| `fake_server_test.cpp` | v1 假服务端：真实 TLS/WS/zstd、严格 BATCH 校验、画布/画笔/冷却/声纳；直接状态机测试 + NewSch1122 完整小目标端到端 |
 | `classic_target_test.cpp` | `TargetBuilder`/`build_target` 与 `Plan` 的 known_idx/bbox/claim/done |
 | `classic_scheduler_test.cpp` | `ClassicScheduler` 的 step 派发、OK/Cooling/Error、断线重排、完成语义，以及 `ClassicResultHandler` 直测 |
 | `new_sch1122_test.cpp` | 用宏复用 `classic_scheduler_test.cpp` 的 8 个场景，跑 `NewSch1122`（step/OK/Cooling/断线路径与 Classic 一致；声纳密铺另有专门测试） |

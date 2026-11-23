@@ -125,6 +125,8 @@ testfiles/          探针与对拍程序；详见 testfiles/README.md
   classic_scheduler_test/new_sch1122_test/new_sch1122_paint_test/
   new_sch1122_sonar_test/new_sch1122_repair_test/sonar_tiling_test/
   cli_test/alternate_scheduler_test
+  fake_server_test.cpp  本地假服务端 v1（TLS/WS/zstd、严格 BATCH、画布/冷却/声纳；
+                        仅响应客户端、无竞争者；测试显式用 NewSch1122）
   pub_decode/pub_apply/web_test 等探针
 pull_pub.sh         走 7890 代理拉公共画面（HTTP），失败回退直连
 snap_retry.sh       快照重试（HTTP，成功后出 PPM/PNG）
@@ -194,6 +196,7 @@ snap_retry.sh       快照重试（HTTP，成功后出 PPM/PNG）
 ```bash
 make            # 生成 ./main（src/app/main.cpp + 全部 src/）
 make test       # 构建全部测试二进制（不自动运行）
+make test-fake-server  # 本地 TLS/WS 假服务端 v1：状态机 + NewSch1122 完整小目标
 ```
 - `zstd.h` 来自无 root 解包的 `.deps/zstd-dev/usr/include`（Makefile 已带 `-I`）；运行时链接系统 `libzstd.so.1`（dev 包装出来的 `.so` 软链可能不存在，别改成 `-lzstd` 后不检查）。
 - `stb_image.h` 已放在 `.deps/stb/`，由 `src/scheduler/target_builder.cpp` 相对包含，**不需要额外 `-I`**。
